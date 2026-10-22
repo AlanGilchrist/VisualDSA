@@ -1,0 +1,24 @@
+# Build output
+build/
+build-*/
+out/
+cmake-build-*/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+CMakeUserPresets.json
+
+# Compiled artifacts
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+
+# Qt Test log files
+*.qtest.txt
