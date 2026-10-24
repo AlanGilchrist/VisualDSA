@@ -1,6 +1,6 @@
 # VisualDSA
 
-**Interactive Binary Search Tree Operations and Traversal Visualizer**: a Data Structures and Algorithms mini project in C++17 with Qt 6 Widgets.
+**Interactive Binary Search Tree Operations and Traversal Visualizer**: a Data Structures and Algorithms mini project in C++17 with Qt 6 Widgets, with a matching **web version** that runs in any modern browser.
 
 VisualDSA runs real BST algorithms on a real C++ tree and replays every step they took: comparisons, the path from the root, deletion cases, the inorder successor, transactional updates and traversal order. Every animation is a replay of events recorded while the algorithm ran. Nothing is drawn that the algorithm did not do.
 
@@ -79,6 +79,31 @@ ctest --test-dir build --output-on-failure
 ./build/bin/VisualDSA
 ```
 
+## Web version
+
+The [`web/`](web/) folder holds the same visualizer as a static website. It needs no build step and has no dependencies: plain HTML, CSS and JavaScript, drawn on an HTML canvas.
+
+- **Open it directly:** double-click `web/index.html`.
+- **Or serve it locally:** `python -m http.server 8000 --directory web`, then open <http://localhost:8000>.
+- **Host it:** upload the contents of `web/` to any static host (GitHub Pages, Netlify and so on).
+
+The web version is a direct port of the C++ layers. It uses the same algorithms, the same recorded events and explanation text, the same pseudocode and complexity tables, and the same canvas layout and colours. It includes every desktop feature: all five operations, playback with speed and timeline, zoom/pan/fit, click-to-inspect, replayable history, the Algorithm Reference page and the keyboard shortcuts. The layout adapts down to phone width.
+
+| Web file | Ported from |
+|---|---|
+| `web/js/core.js` | `src/core/` (BinarySearchTree, Recorder, TreeSnapshot, TreeValidator) |
+| `web/js/pseudocode.js` | `src/core/Pseudocode.cpp` |
+| `web/js/validation.js` | `src/utils/Validation.cpp` |
+| `web/js/canvas.js` | `src/visualization/TreeLayout.cpp`, `TreeCanvas.cpp` |
+| `web/js/animation.js` | `src/visualization/AnimationController.cpp` |
+| `web/js/app.js`, `web/index.html`, `web/css/style.css` | `src/ui/` and `resources/styles/theme.qss` |
+
+The web core has its own test suite, ported from the Qt Test cases (Node.js 18 or newer):
+
+```bash
+node --test web/tests/core.test.js
+```
+
 ## CMake options
 
 | Option | Default | Meaning |
@@ -109,6 +134,8 @@ VisualDSA/
 │   └── main.cpp
 ├── resources/                theme.qss (token-based stylesheet), resources.qrc
 ├── tests/                    Layer D: four Qt Test suites run by CTest
+├── web/                      browser version: index.html, css/, js/ (port of the
+│                             layers above), tests/ (Node test suite)
 ├── tools/                    screenshot generator
 ├── screenshots/              generated PNGs of every operation
 └── docs/                     report, algorithms, complexity, tests, user guide, viva

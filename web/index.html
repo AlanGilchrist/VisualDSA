@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VisualDSA — BST Visualizer</title>
+    <meta name="description" content="Interactive Binary Search Tree operations and traversal visualizer. Every animation is a replay of events recorded while the real algorithm ran.">
+    <meta name="theme-color" content="#181818">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101010'/%3E%3Cpath d='M16 9 9.5 21M16 9l6.5 12' stroke='%233E3C38' stroke-width='2'/%3E%3Ccircle cx='16' cy='9' r='4.5' fill='%233A2B1A' stroke='%23E5A45C' stroke-width='2'/%3E%3Ccircle cx='9.5' cy='22' r='4.5' fill='%231D1D1C' stroke='%234A4844' stroke-width='1.6'/%3E%3Ccircle cx='22.5' cy='22' r='4.5' fill='%231B2C24' stroke='%2378B99A' stroke-width='1.6'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+    <header class="topbar">
+        <div class="wordmark">Visual<span>DSA</span></div>
+        <div class="vrule" aria-hidden="true"></div>
+        <div class="subtitle">Binary Search Tree · Operations &amp; Traversal Visualizer</div>
+        <div class="spacer"></div>
+        <button class="ghost" id="reset-button" title="Restore the sample tree 50, 30, 70, 20, 40, 60, 80">Reset</button>
+        <button class="ghost" id="help-button" title="Controls and keyboard shortcuts (F1)">Help</button>
+        <button class="ghost" id="about-button">About</button>
+    </header>
+
+    <div class="body">
+        <nav class="sidebar" aria-label="Modules">
+            <div class="nav-groups" id="nav"></div>
+            <p class="note sidebar-footer">JavaScript · HTML Canvas<br>Keys −9999 to 9999 · up to 64 nodes</p>
+        </nav>
+
+        <main class="workspace">
+            <h1 id="module-title">Overview</h1>
+            <p class="secondary" id="module-description"></p>
+
+            <div class="stats">
+                <div class="stat"><span class="section">ROOT</span><span class="stat-value" id="stat-root">null</span></div>
+                <div class="stat"><span class="section">NODES</span><span class="stat-value" id="stat-size">0</span></div>
+                <div class="stat"><span class="section">HEIGHT</span><span class="stat-value" id="stat-height">—</span></div>
+                <div class="stat stat-node"><span class="section">NODE</span><span class="stat-value" id="stat-node">— click a node to inspect</span></div>
+                <div class="status" id="status" data-tone="neutral" role="status" aria-live="polite"></div>
+            </div>
+
+            <div class="center">
+                <div class="canvas-frame" id="canvas-frame">
+                    <canvas id="tree-canvas" tabindex="0" aria-label="Binary search tree canvas"></canvas>
+                    <div class="canvas-toolbar">
+                        <button class="tool" id="zoom-out" title="Zoom out (Ctrl+−)" aria-label="Zoom out">
+                            <svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg>
+                        </button>
+                        <button class="tool" id="zoom-in" title="Zoom in (Ctrl+=)" aria-label="Zoom in">
+                            <svg viewBox="0 0 16 16"><path d="M3.5 8h9M8 3.5v9"/></svg>
+                        </button>
+                        <button class="tool" id="zoom-reset" title="Actual size (100%)" aria-label="Actual size">
+                            <svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="2"/><rect x="6.5" y="6.5" width="3" height="3" rx=".5" class="solid"/></svg>
+                        </button>
+                        <button class="tool fit" id="zoom-fit" title="Fit the tree to the canvas (Ctrl+0, or double-click empty space)">
+                            <svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>
+                            Fit
+                        </button>
+                    </div>
+                </div>
+                <article class="reference" id="reference" hidden></article>
+            </div>
+        </main>
+
+        <aside class="panel" aria-label="Operation details">
+            <section>
+                <h2 class="section">OPERATION</h2>
+
+                <form class="op-page" data-module="Overview" id="form-build" novalidate>
+                    <p class="secondary">Enter comma-separated integers. They are inserted in the given order, so the first key becomes the root. Keys must be unique.</p>
+                    <input type="text" id="tree-input" placeholder="e.g. 50, 30, 70, 20, 40, 60, 80" aria-label="Keys to build the tree from" autocomplete="off" spellcheck="false">
+                    <div class="row">
+                        <button type="submit" class="primary grow">Create tree</button>
+                        <button type="button" id="sample-button">Load sample</button>
+                        <button type="button" id="clear-button">Clear</button>
+                    </div>
+                </form>
+
+                <form class="op-page" data-module="Insert" data-op="insert" novalidate>
+                    <p class="secondary">Starting at the root, the key is compared with each node and moves left (smaller) or right (larger) until an empty position is found. Duplicates are rejected.</p>
+                    <div class="row">
+                        <input type="text" inputmode="numeric" class="grow" placeholder="Integer key (−9999 to 9999)" aria-label="Key to insert" autocomplete="off">
+                        <button type="submit" class="primary">Insert</button>
+                    </div>
+                </form>
+
+                <form class="op-page" data-module="Delete" data-op="delete" novalidate>
+                    <p class="secondary">Try a leaf (20), a node with one child, and a node with two children (30 or 50) to see all three deletion cases.</p>
+                    <div class="row">
+                        <input type="text" inputmode="numeric" class="grow" placeholder="Integer key (−9999 to 9999)" aria-label="Key to delete" autocomplete="off">
+                        <button type="submit" class="primary">Delete</button>
+                    </div>
+                </form>
+
+                <form class="op-page" data-module="Search" data-op="search" novalidate>
+                    <p class="secondary">Each comparison discards one subtree. Search for a present key (60) and an absent one (65).</p>
+                    <div class="row">
+                        <input type="text" inputmode="numeric" class="grow" placeholder="Integer key (−9999 to 9999)" aria-label="Key to search for" autocomplete="off">
+                        <button type="submit" class="primary">Search</button>
+                    </div>
+                </form>
+
+                <form class="op-page" data-module="Update" id="form-update" novalidate>
+                    <p class="secondary">A key cannot simply be overwritten: its position depends on its value. The update deletes the old key and inserts the new one inside a transaction, so the tree is never left invalid.</p>
+                    <div class="grid2">
+                        <input type="text" inputmode="numeric" id="update-old" placeholder="Existing key" aria-label="Existing key" autocomplete="off">
+                        <input type="text" inputmode="numeric" id="update-new" placeholder="New key" aria-label="New key" autocomplete="off">
+                        <button type="submit" class="primary span2">Update</button>
+                    </div>
+                </form>
+
+                <div class="op-page" data-module="Traversals">
+                    <p class="secondary">Every node is visited exactly once. Only the moment a node is output differs between the three orders.</p>
+                    <button type="button" class="traversal" data-order="Inorder"><b>Inorder</b><span>Left · Root · Right</span></button>
+                    <button type="button" class="traversal" data-order="Preorder"><b>Preorder</b><span>Root · Left · Right</span></button>
+                    <button type="button" class="traversal" data-order="Postorder"><b>Postorder</b><span>Left · Right · Root</span></button>
+                </div>
+
+                <div class="op-page" data-module="Reference">
+                    <p class="secondary">The workspace shows pseudocode, complexity and terminology for every operation. Choose an operation in the sidebar to return to the canvas.</p>
+                </div>
+
+                <p class="input-error" id="input-error" role="alert" hidden></p>
+            </section>
+
+            <section>
+                <h2 class="section">CURRENT STEP</h2>
+                <div class="explain">
+                    <p class="explain-step" id="explain-step">NO STEP SELECTED</p>
+                    <p class="explain-comparison" id="explain-comparison" hidden></p>
+                    <p class="explain-action" id="explain-action">Run an operation to see it explained step by step.</p>
+                    <p class="explain-reason" id="explain-reason">Each step shows the comparison made, the action taken and the reason for it.</p>
+                    <h3 class="section" id="explain-output-label" hidden>OUTPUT SO FAR</h3>
+                    <p class="explain-output" id="explain-output" hidden></p>
+                </div>
+            </section>
+
+            <section>
+                <h2 class="section" id="pseudocode-title">PSEUDOCODE</h2>
+                <ol class="pseudocode" id="pseudocode"></ol>
+            </section>
+
+            <section>
+                <h2 class="section">COMPLEXITY</h2>
+                <h3 class="subsection">Theoretical · unbalanced BST</h3>
+                <dl class="kv">
+                    <dt>Best case</dt><dd id="cx-best"></dd>
+                    <dt>Average case</dt><dd id="cx-average"></dd>
+                    <dt>Worst case</dt><dd id="cx-worst"></dd>
+                    <dt>Auxiliary space</dt><dd id="cx-space"></dd>
+                </dl>
+                <p class="note" id="cx-note"></p>
+                <h3 class="subsection">Measured · this run</h3>
+                <dl class="kv">
+                    <dt>Nodes visited</dt><dd id="m-visited">—</dd>
+                    <dt>Key comparisons</dt><dd id="m-comparisons">—</dd>
+                    <dt>Traversal outputs</dt><dd id="m-traversal">—</dd>
+                    <dt>Structural changes</dt><dd id="m-changes">—</dd>
+                    <dt>Tree size&nbsp; n</dt><dd id="m-size">0</dd>
+                    <dt>Tree height&nbsp; h</dt><dd id="m-height">—</dd>
+                </dl>
+                <p class="note">Counted by the algorithm up to the current step. Playback speed does not affect these values; height counts edges (single node = 0).</p>
+            </section>
+
+            <section>
+                <h2 class="section">HISTORY</h2>
+                <ul class="history" id="history" aria-label="Operation history"></ul>
+                <p class="note">Click an entry to replay its recorded steps.</p>
+            </section>
+        </aside>
+    </div>
+
+    <footer class="playback">
+        <div class="transport">
+            <button class="pb" id="pb-previous" title="Previous step (Ctrl+Left)" aria-label="Previous step">
+                <svg viewBox="0 0 18 18"><path d="M4.5 3.5v11" class="stroke"/><path d="M14 3.8v10.4L6.4 9z" class="solid"/></svg>
+            </button>
+            <button class="pb play" id="pb-play" title="Play / pause (Ctrl+Space)" aria-label="Play">
+                <svg viewBox="0 0 18 18" class="icon-play"><path d="M5.5 3.3v11.4L14.6 9z" class="solid"/></svg>
+                <svg viewBox="0 0 18 18" class="icon-pause"><rect x="4.6" y="3.6" width="3" height="10.8" rx=".6" class="solid"/><rect x="10.4" y="3.6" width="3" height="10.8" rx=".6" class="solid"/></svg>
+            </button>
+            <button class="pb" id="pb-next" title="Next step (Ctrl+Right)" aria-label="Next step">
+                <svg viewBox="0 0 18 18"><path d="M13.5 3.5v11" class="stroke"/><path d="M4 3.8v10.4L11.6 9z" class="solid"/></svg>
+            </button>
+            <button class="pb restart" id="pb-restart" title="Restart playback from step 1" aria-label="Restart playback">
+                <svg viewBox="0 0 18 18"><path d="M14.2 9.6A5.3 5.3 0 1 1 12.4 5" class="stroke"/><path d="M13.6 2.6v3.6H10" class="stroke"/></svg>
+            </button>
+        </div>
+        <label class="speed"><span class="section">SPEED</span>
+            <select id="pb-speed" aria-label="Playback speed">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+            </select>
+        </label>
+        <input type="range" id="pb-timeline" min="0" max="0" value="0" step="1" aria-label="Timeline">
+        <span class="step-label" id="pb-step">NO OPERATION YET</span>
+    </footer>
+</div>
+
+<dialog id="dialog">
+    <form method="dialog">
+        <h2 id="dialog-title"></h2>
+        <div id="dialog-body"></div>
+        <div class="dialog-buttons" id="dialog-buttons"></div>
+    </form>
+</dialog>
+
+<script src="js/core.js"></script>
+<script src="js/pseudocode.js"></script>
+<script src="js/validation.js"></script>
+<script src="js/canvas.js"></script>
+<script src="js/animation.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
