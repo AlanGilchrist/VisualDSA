@@ -8,7 +8,6 @@
 #include "Palette.h"
 #include "PlaybackPanel.h"
 #include "PseudocodePanel.h"
-#include "ReferencePage.h"
 #include "TreeCanvas.h"
 #include "Validation.h"
 
@@ -21,7 +20,6 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QShortcut>
-#include <QStackedWidget>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -50,12 +48,10 @@ const ModuleInfo kModules[] = {
     {Module::Search, "Search", "OPERATIONS",
      "Compare with each node and discard one subtree per step until the key is found or a null pointer is "
      "reached."},
-    {Module::Update, "Update", "OPERATIONS",
-     "Change a key safely: delete the old key and insert the new one inside a transaction."},
-    {Module::Traversals, "Traversals", "OPERATIONS",
-     "Visit every node in inorder, preorder or postorder and watch the output sequence form."},
-    {Module::Reference, "Algorithm Reference", "LEARN",
-     "Pseudocode, complexity and terminology for every operation."},
+    {Module::Traversals, "Depth-first (DFS)", "TRAVERSALS",
+     "Visit every node depth-first in inorder, preorder or postorder and watch the output sequence form."},
+    {Module::Bfs, "Breadth-first (BFS)", "TRAVERSALS",
+     "Visit every node level by level with a queue: the level-order traversal."},
 };
 
 const ModuleInfo& infoFor(Module module) { return kModules[static_cast<int>(module)]; }
@@ -65,11 +61,10 @@ OperationType defaultOperation(Module module)
     switch (module) {
     case Module::Delete: return OperationType::Delete;
     case Module::Search: return OperationType::Search;
-    case Module::Update: return OperationType::Update;
     case Module::Traversals: return OperationType::InorderTraversal;
+    case Module::Bfs: return OperationType::LevelOrderTraversal;
     case Module::Overview: return OperationType::Build;
-    case Module::Insert:
-    case Module::Reference: break;
+    case Module::Insert: break;
     }
     return OperationType::Insert;
 }
@@ -99,10 +94,8 @@ const char* toneFor(ResultStatus status)
 {
     switch (status) {
     case ResultStatus::Success: return "success";
-    case ResultStatus::NoChange: return "neutral";
     case ResultStatus::NotFound:
-    case ResultStatus::Rejected:
-    case ResultStatus::Failed: break;
+    case ResultStatus::Rejected: break;
     }
     return "error";
 }
@@ -113,11 +106,10 @@ QString progressText(const OperationResult& r)
     case OperationType::Insert: return QObject::tr("Inserting %1…").arg(r.key);
     case OperationType::Delete: return QObject::tr("Deleting %1…").arg(r.key);
     case OperationType::Search: return QObject::tr("Searching for %1…").arg(r.key);
-    case OperationType::Update:
-        return QObject::tr("Updating %1 → %2…").arg(r.key).arg(r.secondaryKey ? *r.secondaryKey : r.key);
     case OperationType::InorderTraversal: return QObject::tr("Inorder traversal…");
     case OperationType::PreorderTraversal: return QObject::tr("Preorder traversal…");
     case OperationType::PostorderTraversal: return QObject::tr("Postorder traversal…");
+    case OperationType::LevelOrderTraversal: return QObject::tr("Level-order traversal (BFS)…");
     case OperationType::Build: return QObject::tr("Building tree…");
     case OperationType::Clear: return QObject::tr("Clearing tree…");
     }
@@ -250,7 +242,11 @@ QWidget* MainWindow::buildSidebar()
             layout->addWidget(label);
         }
         auto* button = new QPushButton(tr(info.name), sidebar);
-        button->setObjectName(QStringLiteral("Nav") + QString::fromLatin1(info.name).remove(QLatin1Char(' ')));
+        QString objectName = QStringLiteral("Nav");
+        for (const QChar c : QString::fromLatin1(info.name))
+            if (c.isLetter())
+                objectName += c;
+        button->setObjectName(objectName); // e.g. NavBreadthfirstBFS
         button->setCheckable(true);
         button->setCursor(Qt::PointingHandCursor);
         navigation_->addButton(button, static_cast<int>(info.module));
@@ -352,10 +348,6 @@ QWidget* MainWindow::buildWorkspace()
     overlay->addWidget(canvas_, 0, 0);
     overlay->addWidget(toolbar, 0, 0, Qt::AlignTop | Qt::AlignRight);
 
-    centerStack_ = new QStackedWidget(workspace);
-    centerStack_->addWidget(canvasFrame);
-    centerStack_->addWidget(new ReferencePage(workspace));
-
     auto* layout = new QVBoxLayout(workspace);
     layout->setContentsMargins(28, 22, 28, 18);
     layout->setSpacing(0);
@@ -365,7 +357,7 @@ QWidget* MainWindow::buildWorkspace()
     layout->addSpacing(16);
     layout->addLayout(stats);
     layout->addSpacing(12);
-    layout->addWidget(centerStack_, 1);
+    layout->addWidget(canvasFrame, 1);
     return workspace;
 }
 
@@ -422,7 +414,6 @@ void MainWindow::connectSignals()
     connect(operations_, &OperationPanel::insertRequested, this, &MainWindow::insertKey);
     connect(operations_, &OperationPanel::deleteRequested, this, &MainWindow::deleteKey);
     connect(operations_, &OperationPanel::searchRequested, this, &MainWindow::searchKey);
-    connect(operations_, &OperationPanel::updateRequested, this, &MainWindow::updateKey);
     connect(operations_, &OperationPanel::traversalRequested, this, &MainWindow::runTraversal);
     connect(operations_, &OperationPanel::buildRequested, this, &MainWindow::buildTree);
     connect(operations_, &OperationPanel::clearRequested, this, &MainWindow::clearTree);
@@ -485,7 +476,6 @@ void MainWindow::selectModule(Module module)
         button->setChecked(true);
     moduleTitle_->setText(tr(info.name));
     moduleDescription_->setText(tr(info.description));
-    centerStack_->setCurrentIndex(module == Module::Reference ? 1 : 0);
     operations_->setModule(module);
 
     // With nothing recorded yet, preview the selected operation's pseudocode.
@@ -515,11 +505,6 @@ void MainWindow::deleteKey(int key)
 void MainWindow::searchKey(int key)
 {
     runOperation([this, key] { return tree_.search(key); });
-}
-
-void MainWindow::updateKey(int oldKey, int newKey)
-{
-    runOperation([this, oldKey, newKey] { return tree_.update(oldKey, newKey); });
 }
 
 void MainWindow::runTraversal(TraversalOrder order)
@@ -635,7 +620,7 @@ void MainWindow::onStepChanged(int step, int count)
 
     canvas_->showStep(*snapshot, *event, transitionDuration());
     pseudocode_->setActiveLine(event->line);
-    explanation_->setEvent(*event, step, count);
+    explanation_->setEvent(*event, *snapshot, step, count);
     complexity_->setMeasurements(&event->metrics, snapshot->size(), snapshot->height());
     playback_->setState(step, count, controller_->isPlaying());
     refreshStats(*snapshot);

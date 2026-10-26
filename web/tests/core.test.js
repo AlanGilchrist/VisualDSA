@@ -126,7 +126,62 @@ test('traversals of the sample tree', () => {
 
 test('traversals on empty and single-node trees', () => {
     assert.deepEqual(new BinarySearchTree().inorder(), []);
+    assert.deepEqual(new BinarySearchTree().levelOrder(), []);
     assert.deepEqual(treeOf([7]).postorder(), [7]);
+    assert.deepEqual(treeOf([7]).levelOrder(), [7]);
+});
+
+// --- Breadth-first (level-order) traversal ---------------------------------
+
+test('level order of the sample tree', () => {
+    assert.deepEqual(sampleTree().levelOrder(), [50, 30, 70, 20, 40, 60, 80]);
+});
+
+test('level order of a skewed tree keeps at most one node waiting', () => {
+    const rec = treeOf([1, 2, 3, 4, 5]).traverse(TraversalOrder.LevelOrder);
+    assert.deepEqual(rec.result.sequence, [1, 2, 3, 4, 5]);
+    for (const e of rec.events)
+        assert.ok(e.queue.length <= 1);
+});
+
+test('level order of an empty tree', () => {
+    const rec = new BinarySearchTree().traverse(TraversalOrder.LevelOrder);
+    assert.equal(rec.events.length, 1);
+    assert.equal(rec.events[0].line, PseudoLine.BfsEmpty);
+});
+
+test('level-order queue is first-in, first-out', () => {
+    const rec = sampleTree().traverse(TraversalOrder.LevelOrder);
+    const snap = rec.snapshots[0];
+    assert.deepEqual(rec.events[0].queue, [snap.root]);
+    let dequeued = 0;
+    let enqueued = 0;
+    let widest = 0;
+    let lastDepth = 0;
+    for (let i = 1; i < rec.events.length; ++i) {
+        const prev = rec.events[i - 1];
+        const e = rec.events[i];
+        widest = Math.max(widest, e.queue.length);
+        if (e.type === EventType.NodeDequeued) {
+            ++dequeued;
+            assert.equal(e.nodeId, prev.queue[0]); // the front leaves
+            assert.deepEqual(e.queue, prev.queue.slice(1));
+            const depth = snap.find(e.nodeId).depth;
+            assert.ok(depth >= lastDepth); // levels never go backwards
+            lastDepth = depth;
+        } else if (e.type === EventType.NodeEnqueued) {
+            ++enqueued;
+            assert.equal(e.queue.at(-1), e.secondaryId); // new nodes join the back
+            assert.equal(e.secondaryRole, SecondaryRole.Enqueued);
+            assert.equal(snap.find(e.secondaryId).parent, e.nodeId);
+        }
+    }
+    assert.equal(dequeued, 7);
+    assert.equal(enqueued, 6);
+    assert.equal(widest, 4);
+    assert.deepEqual(rec.events.at(-1).queue, []);
+    assert.equal(rec.result.metrics.keyComparisons, 0);
+    assert.equal(rec.events.at(-1).reason, 'Visited 7 nodes level by level: [50] [30, 70] [20, 40, 60, 80].');
 });
 
 test('traversal events emit the output progressively', () => {
@@ -144,9 +199,10 @@ test('every event line exists in its operation listing', () => {
     const tree = sampleTree();
     const records = [
         tree.search(60), tree.search(65), tree.insert(45), tree.insert(45), tree.remove(20), tree.remove(70),
-        tree.remove(30), tree.remove(1), tree.update(45, 99), tree.update(1, 2), tree.update(50, 60), tree.update(60, 60),
-        tree.traverse(TraversalOrder.Inorder), tree.traverse(TraversalOrder.Preorder),
-        tree.traverse(TraversalOrder.Postorder), tree.rebuild([3, 1, 2]), tree.rebuild([1, 1]), tree.clearTree(),
+        tree.remove(30), tree.remove(1), tree.traverse(TraversalOrder.Inorder), tree.traverse(TraversalOrder.Preorder),
+        tree.traverse(TraversalOrder.Postorder), tree.traverse(TraversalOrder.LevelOrder),
+        new BinarySearchTree().traverse(TraversalOrder.LevelOrder), tree.rebuild([3, 1, 2]), tree.rebuild([1, 1]),
+        tree.clearTree(),
     ];
     for (const rec of records) {
         for (const e of rec.events) {
@@ -247,49 +303,6 @@ test('delete every key in several orders', () => {
     }
 });
 
-// --- Update ----------------------------------------------------------------
-
-test('update a key', () => {
-    const tree = sampleTree();
-    const rec = tree.update(40, 45);
-    assert.equal(rec.result.status, ResultStatus.Success);
-    assert.deepEqual(tree.inorder(), [20, 30, 45, 50, 60, 70, 80]);
-    assert.equal(rec.events.at(-1).type, EventType.TransactionCommitted);
-});
-
-test('update moves a key to the other branch', () => {
-    const tree = sampleTree();
-    assert.equal(tree.update(20, 65).result.status, ResultStatus.Success);
-    assert.equal(tree.root.right.left.right.key, 65);
-    assert.deepEqual(tree.inorder(), [30, 40, 50, 60, 65, 70, 80]);
-});
-
-test('update rejections leave the tree identical', () => {
-    const tree = sampleTree();
-    const before = tree.snapshot();
-    assert.equal(tree.update(41, 42).result.code, ResultCode.KeyMissing);
-    const conflict = tree.update(40, 60);
-    assert.equal(conflict.result.code, ResultCode.NewKeyExists);
-    assert.equal(conflict.result.message, 'Update rejected: the new key already exists.');
-    assert.equal(tree.update(30, 30).result.status, ResultStatus.NoChange);
-    assert.equal(new BinarySearchTree().update(1, 2).result.code, ResultCode.KeyMissing);
-    assert.deepEqual(tree.snapshot().nodes, before.nodes);
-});
-
-test('update intermediate states are tentative and valid', () => {
-    const rec = sampleTree().update(30, 75);
-    assert.equal(rec.result.status, ResultStatus.Success);
-    for (const e of rec.events) {
-        if ([EventType.TransactionStarted, EventType.NodeRemoved, EventType.NodeInserted].includes(e.type))
-            assert.ok(e.tentative);
-    }
-    assert.equal(rec.events.at(-1).tentative, false);
-    for (const s of rec.snapshots)
-        assert.ok(validateSnapshot(s).valid);
-    assert.equal(firstEvent(rec, EventType.DeletionCaseIdentified).line, PseudoLine.UpdDelete);
-    assert.equal(firstEvent(rec, EventType.NodeInserted).line, PseudoLine.UpdInsert);
-});
-
 // --- Snapshots, build, clear, invariants -----------------------------------
 
 test('snapshots are independent of the live tree', () => {
@@ -359,12 +372,8 @@ test('randomized operations match a reference set', () => {
             assert.equal(ok, reference.has(key));
             reference.delete(key);
         } else {
-            const other = Math.floor(rand() * 200) - 100;
-            const rec = tree.update(key, other);
-            if (rec.result.status === ResultStatus.Success) {
-                reference.delete(key);
-                reference.add(other);
-            }
+            const found = tree.search(key).result.code === ResultCode.KeyFound;
+            assert.equal(found, reference.has(key));
         }
         assert.ok(tree.validate().valid);
     }

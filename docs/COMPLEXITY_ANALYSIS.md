@@ -4,6 +4,7 @@ Notation:
 
 - **n**: the number of nodes.
 - **h**: the height of the tree, counted in edges.
+- **w**: the width of the tree, the largest number of nodes on one level.
 
 A plain BST does **not** rebalance itself:
 
@@ -19,8 +20,8 @@ Every bound below that depends on the tree's shape is O(h). "O(log n)" is the *a
 | Search | O(1) | O(log n) | O(n) | O(1), iterative |
 | Insertion | O(1) | O(log n) | O(n) | O(1), iterative |
 | Deletion | O(1) | O(log n) | O(n) | O(1), iterative |
-| Update | O(1) | O(log n) | O(n) | O(1) in place; **O(n)** in this transactional implementation |
-| Inorder / preorder / postorder | O(n) | O(n) | O(n) | O(h) recursion stack + O(n) stored output |
+| Inorder / preorder / postorder (DFS) | O(n) | O(n) | O(n) | O(h) recursion stack + O(n) stored output |
+| Level order (BFS) | O(n) | O(n) | O(n) | O(w) queue + O(n) stored output |
 | Build from n keys | O(n log n) | O(n log n) | O(n²) | O(n) for the nodes |
 | Clear | O(n) | O(n) | O(n) | O(1) (rotation-based) |
 
@@ -44,11 +45,7 @@ Deletion has three parts:
 
 The total is O(h).
 
-## Update
-
-An update runs search(old) + search(new) + delete + insert, which is 4 · O(h) = O(h). This implementation also copies the whole tree into a working copy, so the update can be committed or rolled back atomically. That copy costs **O(n) time and O(n) space**. The trade-off is chosen on purpose: the live tree can never be left half-updated. An in-place delete followed by an insert needs only O(1) extra space.
-
-## Traversals
+## Depth-first traversals
 
 Each node is entered once and output once, so the time is Θ(n) for every shape. The recursion depth equals the height:
 
@@ -56,6 +53,15 @@ Each node is entered once and output once, so the time is Θ(n) for every shape.
 - O(n) for a skewed tree.
 
 Storing the output takes another O(n).
+
+## Breadth-first traversal (level order)
+
+Each node is enqueued once and dequeued once, so the time is also Θ(n) for every shape. The extra space is the queue, which holds at most about one level at a time: O(w).
+
+- **Full or balanced-shaped tree:** the last level holds about n/2 nodes, so the queue needs O(n). The sample tree peaks at 4 waiting nodes, its four leaves.
+- **Skewed tree:** every level has one node, so the queue never holds more than 1: O(1).
+
+This is the mirror image of the depth-first traversals. Their stack grows with the height, so they are cheap on wide, shallow trees and expensive on deep, skewed ones. BFS is cheap on deep, narrow trees and expensive on wide ones.
 
 ## Building a tree
 
@@ -85,8 +91,8 @@ Examples on the sample tree, all verified by the automated tests:
 | Search 60 | 3 | 3 | 0 |
 | Insert 45 | 3 | 3 | 1 |
 | Delete 30 (two children) | 3 | 2 | 2 |
-| Update 20 → 85 | — | — | 2 |
 | Postorder traversal | 7 | 0 | 0, plus 7 outputs |
+| Level-order traversal (BFS) | 7 | 0 | 0, plus 7 outputs |
 
 For delete 30: nodes 50 and 30 are reached by comparison, and 40 is reached during the successor search. Both are counted as visited, but only the first two involved key comparisons.
 

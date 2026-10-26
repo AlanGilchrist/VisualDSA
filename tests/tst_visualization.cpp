@@ -287,6 +287,30 @@ private slots:
         QCOMPARE(window.canvas()->nodeCount(), 6);
     }
 
+    void levelOrderStepsStayInSync()
+    {
+        MainWindow window;
+        window.setConfirmationsEnabled(false);
+        window.selectModule(Module::Bfs);
+        auto* run = window.findChild<QPushButton*>("BfsButton");
+        QVERIFY(run);
+        run->click();
+
+        AnimationController* controller = window.controller();
+        QCOMPARE(window.pseudocode()->operation(), OperationType::LevelOrderTraversal);
+        QCOMPARE(controller->stepCount(), 1 + 7 * 2 + 6 + 1); // start, dequeue + visit per node, 6 enqueues, done
+        for (int step = 0; step < controller->stepCount(); ++step) {
+            controller->jumpTo(step);
+            const AlgorithmEvent* e = controller->currentEvent();
+            QCOMPARE(window.pseudocode()->activeLine(), e->line);
+            QVERIFY(window.pseudocode()->activeRow() >= 0);
+            QCOMPARE(window.explanation()->actionText(), QString::fromStdString(e->action));
+            QCOMPARE(window.canvas()->currentEvent()->queue, e->queue);
+        }
+        QCOMPARE(window.statusText(), QString("Traversal completed."));
+        QCOMPARE(window.tree().size(), std::size_t(7)); // a traversal never changes the tree
+    }
+
     void invalidInputDoesNotTouchTree()
     {
         MainWindow window;
@@ -335,7 +359,7 @@ private slots:
         window.setConfirmationsEnabled(false);
         window.insertKey(45);
         window.deleteKey(70);
-        window.updateKey(20, 1);
+        window.runTraversal(TraversalOrder::LevelOrder);
         window.clearTree();
         QVERIFY(window.tree().empty());
         window.resetToSample();

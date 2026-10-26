@@ -43,6 +43,14 @@ ExplanationPanel::ExplanationPanel(QWidget* parent) : QWidget(parent)
     reason_->setObjectName(QStringLiteral("ExplainReason"));
     reason_->setWordWrap(true);
 
+    queueLabel_ = new QLabel(tr("QUEUE  ·  FRONT → BACK"), this);
+    queueLabel_->setProperty("role", "section");
+    queue_ = new QLabel(this);
+    queue_->setObjectName(QStringLiteral("ExplainQueue"));
+    queue_->setWordWrap(true);
+    queue_->setFont(palette::monoFont(10));
+    queue_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
     outputLabel_ = new QLabel(tr("OUTPUT SO FAR"), this);
     outputLabel_->setProperty("role", "section");
     output_ = new QLabel(this);
@@ -62,13 +70,15 @@ ExplanationPanel::ExplanationPanel(QWidget* parent) : QWidget(parent)
     layout->addWidget(action_);
     layout->addWidget(reason_);
     layout->addSpacing(4);
+    layout->addWidget(queueLabel_);
+    layout->addWidget(queue_);
     layout->addWidget(outputLabel_);
     layout->addWidget(output_);
 
     clear();
 }
 
-void ExplanationPanel::setEvent(const AlgorithmEvent& event, int step, int count)
+void ExplanationPanel::setEvent(const AlgorithmEvent& event, const TreeSnapshot& snapshot, int step, int count)
 {
     QString header = tr("STEP %1 / %2  ·  %3")
                          .arg(step + 1)
@@ -94,6 +104,18 @@ void ExplanationPanel::setEvent(const AlgorithmEvent& event, int step, int count
             keys << QString::number(key);
         output_->setText(keys.isEmpty() ? QStringLiteral("—") : keys.join(QStringLiteral("  →  ")));
     }
+
+    const bool levelOrder = event.operation == OperationType::LevelOrderTraversal;
+    queueLabel_->setVisible(levelOrder);
+    queue_->setVisible(levelOrder);
+    if (levelOrder) {
+        QStringList waiting;
+        for (NodeId id : event.queue) {
+            if (const SnapshotNode* node = snapshot.find(id))
+                waiting << QString::number(node->key);
+        }
+        queue_->setText(waiting.isEmpty() ? tr("empty") : waiting.join(QStringLiteral("   ")));
+    }
 }
 
 void ExplanationPanel::clear()
@@ -102,6 +124,8 @@ void ExplanationPanel::clear()
     comparison_->hide();
     action_->setText(tr("Run an operation to see it explained step by step."));
     reason_->setText(tr("Each step shows the comparison made, the action taken and the reason for it."));
+    queueLabel_->hide();
+    queue_->hide();
     outputLabel_->hide();
     output_->hide();
 }

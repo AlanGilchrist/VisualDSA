@@ -1,4 +1,4 @@
-// Deletion and update tests, plus checks on the recorded event stream.
+// Deletion tests, plus checks on the recorded event stream.
 
 #include "BinarySearchTree.h"
 
@@ -204,142 +204,6 @@ private slots:
         }
     }
 
-    // --- Update --------------------------------------------------------------
-    void updateValidKey()
-    {
-        BinarySearchTree tree = sampleTree();
-        const OperationRecord rec = tree.update(40, 45);
-        QCOMPARE(rec.result.status, ResultStatus::Success);
-        QVERIFY(!tree.contains(40));
-        QVERIFY(tree.contains(45));
-        QCOMPARE(tree.size(), std::size_t(7));
-        QCOMPARE(toList(tree.inorder()), (QList<int>{20, 30, 45, 50, 60, 70, 80}));
-        QVERIFY(tree.validate().valid);
-        QCOMPARE(rec.events.back().type, EventType::TransactionCommitted);
-    }
-
-    void updateMovesKeyToOtherBranch()
-    {
-        BinarySearchTree tree = sampleTree();
-        QVERIFY(tree.update(20, 65).result.succeeded());
-        QVERIFY(!tree.contains(20));
-        // 65 belongs in the right subtree: 50 -> 70 -> 60 -> right.
-        QCOMPARE(tree.root()->right->left->right->key, 65);
-        QCOMPARE(toList(tree.inorder()), (QList<int>{30, 40, 50, 60, 65, 70, 80}));
-        QVERIFY(tree.validate().valid);
-    }
-
-    void updateRootWithTwoChildren()
-    {
-        BinarySearchTree tree = sampleTree();
-        QVERIFY(tree.update(50, 10).result.succeeded());
-        QCOMPARE(toList(tree.inorder()), (QList<int>{10, 20, 30, 40, 60, 70, 80}));
-        QVERIFY(tree.validate().valid);
-    }
-
-    void updateSingleNodeTree()
-    {
-        BinarySearchTree tree = treeOf({5});
-        QVERIFY(tree.update(5, 6).result.succeeded());
-        QCOMPARE(tree.root()->key, 6);
-        QCOMPARE(tree.size(), std::size_t(1));
-    }
-
-    void updateMissingOldKeyRejected()
-    {
-        BinarySearchTree tree = sampleTree();
-        const QList<int> before = preorderOf(tree);
-        const OperationRecord rec = tree.update(41, 42);
-        QCOMPARE(rec.result.status, ResultStatus::Rejected);
-        QCOMPARE(rec.result.code, ResultCode::KeyMissing);
-        QCOMPARE(preorderOf(tree), before);
-        QVERIFY(!hasEvent(rec, EventType::TransactionStarted));
-    }
-
-    void updateConflictingNewKeyRejected()
-    {
-        BinarySearchTree tree = sampleTree();
-        const QList<int> before = preorderOf(tree);
-        const OperationRecord rec = tree.update(40, 60);
-        QCOMPARE(rec.result.status, ResultStatus::Rejected);
-        QCOMPARE(rec.result.code, ResultCode::NewKeyExists);
-        QCOMPARE(QString::fromStdString(rec.result.message), QString("Update rejected: the new key already exists."));
-        QCOMPARE(preorderOf(tree), before);
-        QVERIFY(!rec.result.treeChanged);
-    }
-
-    void updateSameKeyIsNoOp()
-    {
-        BinarySearchTree tree = sampleTree();
-        const QList<int> before = preorderOf(tree);
-        const OperationRecord rec = tree.update(30, 30);
-        QCOMPARE(rec.result.status, ResultStatus::NoChange);
-        QCOMPARE(rec.result.code, ResultCode::SameKey);
-        QCOMPARE(preorderOf(tree), before);
-    }
-
-    void updateOnEmptyTreeRejected()
-    {
-        BinarySearchTree tree;
-        QCOMPARE(tree.update(1, 2).result.code, ResultCode::KeyMissing);
-        QVERIFY(tree.empty());
-    }
-
-    void updateIntermediateStatesAreTentativeAndValid()
-    {
-        BinarySearchTree tree = sampleTree();
-        const OperationRecord rec = tree.update(30, 75);
-        QVERIFY(rec.result.succeeded());
-        bool sawTentative = false;
-        for (const AlgorithmEvent& e : rec.events) {
-            if (e.type == EventType::TransactionStarted || e.type == EventType::NodeRemoved
-                || e.type == EventType::NodeInserted) {
-                QVERIFY(e.tentative);
-                sawTentative = true;
-            }
-        }
-        QVERIFY(sawTentative);
-        QVERIFY(!rec.events.back().tentative);
-        // Between the removal and the reinsertion the working copy is still a
-        // valid BST (it simply lacks the key), so no invalid tree is ever shown.
-        for (const TreeSnapshot& s : rec.snapshots)
-            QVERIFY(validateSnapshot(s).valid);
-        // Nested deletion/insertion steps are mapped to the update pseudocode.
-        QVERIFY(hasEvent(rec, EventType::DeletionCaseIdentified));
-        QCOMPARE(firstEvent(rec, EventType::DeletionCaseIdentified).line, PseudoLine::UpdDelete);
-        QCOMPARE(firstEvent(rec, EventType::NodeInserted).line, PseudoLine::UpdInsert);
-    }
-
-    void failedUpdatePreservesOriginalTree()
-    {
-        // Rejections happen before the working copy is committed; the live
-        // tree must be byte-for-byte identical (keys, shape and node ids).
-        BinarySearchTree tree = sampleTree();
-        const TreeSnapshot before = tree.snapshot();
-        tree.update(40, 70);
-        tree.update(41, 1);
-        tree.update(40, 40);
-        const TreeSnapshot after = tree.snapshot();
-        QCOMPARE(after.nodes.size(), before.nodes.size());
-        for (std::size_t i = 0; i < before.nodes.size(); ++i) {
-            QCOMPARE(after.nodes[i].id, before.nodes[i].id);
-            QCOMPARE(after.nodes[i].key, before.nodes[i].key);
-            QCOMPARE(after.nodes[i].left, before.nodes[i].left);
-            QCOMPARE(after.nodes[i].right, before.nodes[i].right);
-        }
-    }
-
-    void updateSequenceKeepsInvariant()
-    {
-        BinarySearchTree tree = sampleTree();
-        const std::pair<int, int> updates[] = {{50, 55}, {20, 99}, {99, -3}, {80, 81}, {55, 50}, {60, 35}};
-        for (const auto& [from, to] : updates) {
-            QVERIFY(tree.update(from, to).result.succeeded());
-            QVERIFY2(tree.validate().valid, tree.validate().error.c_str());
-            QCOMPARE(tree.size(), std::size_t(7));
-        }
-    }
-
     // --- Recording and snapshots ---------------------------------------------
     void snapshotsAreIndependentOfLiveTree()
     {
@@ -357,7 +221,7 @@ private slots:
     void metricsAreCumulativeAndMonotonic()
     {
         BinarySearchTree tree = sampleTree();
-        const OperationRecord rec = tree.update(20, 85);
+        const OperationRecord rec = tree.remove(50); // two-children case: richest event stream
         OperationMetrics prev;
         for (const AlgorithmEvent& e : rec.events) {
             QVERIFY(e.metrics.nodesVisited >= prev.nodesVisited);
@@ -365,7 +229,7 @@ private slots:
             QVERIFY(e.metrics.structuralChanges >= prev.structuralChanges);
             prev = e.metrics;
         }
-        QCOMPARE(rec.result.metrics.structuralChanges, 2); // unlink leaf + attach new node
+        QCOMPARE(rec.result.metrics.structuralChanges, 2); // unlink successor + copy its key
     }
 
     void rebuildRejectsDuplicatesWithoutChangingTree()

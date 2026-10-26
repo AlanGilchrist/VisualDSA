@@ -58,18 +58,18 @@ Copying first briefly leaves the same key in the tree twice, which is an invalid
 **16. How do you delete the root without a special case?**
 The code holds a pointer to the *owning link*, `std::unique_ptr<BSTNode>*`, rather than to the parent node. For the root, that link is the tree's `root_` member, so all cases are handled the same way.
 
-## Update
+## Breadth-first search (BFS)
 
-**17. Why can't you simply overwrite a key in a BST?**
-A key's position depends on its value. Writing 65 into the node holding 40 would put 65 in the left subtree of 50. An overwrite is safe only if the new key lies strictly between the old key's inorder predecessor and successor.
+**17. How does breadth-first (level-order) traversal work on a tree?**
+Put the root in a queue. Repeat until the queue is empty: dequeue the front node, output it, then enqueue its left child and its right child. Nodes come out level by level, left to right. For the sample tree that gives 50, 30, 70, 20, 40, 60, 80.
 
-**18. How is your update made atomic?**
-It runs three checks first: the old key exists, the new key is absent, and the keys differ. It then deletes the old key and inserts the new one on a cloned working copy. The copy replaces the live tree only after the invariant check passes; otherwise it is discarded. The live tree is never left half-updated.
+**18. Why does BFS need a queue, when the depth-first orders use recursion?**
+Recursion uses a stack, which is last-in, first-out, so it always goes deeper first. BFS must finish a whole level before starting the next, so it needs first-in, first-out order. A child joins the back of the queue behind every node of the current level that is still waiting.
 
-**19. What does that atomicity cost?**
-O(n) extra time and space for the copy. A plain delete followed by insert costs O(h) time and O(1) extra space, but could leave the tree half-changed if the second step failed.
+**19. Compare the extra space of BFS and DFS.**
+Both take Θ(n) time. DFS uses O(h) stack space: small for a balanced tree, O(n) for a skewed one. BFS uses O(w) queue space, where w is the widest level: about n/2 for a full tree, but only 1 for a skewed one. Each one is cheap exactly where the other is expensive.
 
-## Traversals
+## Depth-first traversals
 
 **20. State the three depth-first traversal orders.**
 - Inorder: Left, Root, Right.
@@ -130,8 +130,8 @@ Pointers become invalid when nodes are deleted. Id-based snapshots stay valid fo
 A single `QTimer` inside `AnimationController` advances steps. Loading a new operation stops it first, manual stepping pauses it, and the controller stops it on destruction. This avoids overlapping `singleShot` chains, and tests cover pause, resume, the boundaries and cancellation.
 
 **34. How did you test the project?**
-With four Qt Test suites (105 results, all passing):
+With four Qt Test suites (99 results, all passing), plus a 34-test suite for the web version:
 - Insertion, search, traversals and input parsing.
-- All deletion cases and update scenarios, including rollback.
+- All deletion cases, and breadth-first queue order.
 - Invariant tests, including 3000 random operations compared against `std::set`.
 - Offscreen GUI tests: layout overlap, canvas state, playback, and step-by-step sync between events, pseudocode and explanations.

@@ -12,7 +12,6 @@
 class QButtonGroup;
 class QLabel;
 class QScrollArea;
-class QStackedWidget;
 
 namespace vdsa {
 
@@ -54,7 +53,6 @@ public slots:
     void insertKey(int key);
     void deleteKey(int key);
     void searchKey(int key);
-    void updateKey(int oldKey, int newKey);
     void runTraversal(vdsa::TraversalOrder order);
     void buildTree(const std::vector<int>& keys);
     void clearTree();
@@ -89,7 +87,6 @@ private:
     AnimationController* controller_ = nullptr;
 
     QButtonGroup* navigation_ = nullptr;
-    QStackedWidget* centerStack_ = nullptr;
     QLabel* moduleTitle_ = nullptr;
     QLabel* moduleDescription_ = nullptr;
     QLabel* rootValue_ = nullptr;

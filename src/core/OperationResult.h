@@ -3,7 +3,6 @@
 #include "AlgorithmEvent.h"
 #include "TreeSnapshot.h"
 
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,9 +11,7 @@ namespace vdsa {
 enum class ResultStatus {
     Success,  // operation did what was asked
     NotFound, // key absent; tree unchanged
-    NoChange, // request was valid but nothing needed to change
-    Rejected, // request violated a rule (duplicate, missing key, ...); tree unchanged
-    Failed,   // an internal check failed and the change was rolled back
+    Rejected, // request violated a rule (duplicate key, full tree, ...); tree unchanged
 };
 
 enum class ResultCode {
@@ -22,11 +19,7 @@ enum class ResultCode {
     KeyFound,
     KeyNotFound,
     DuplicateKey,
-    KeyMissing,
-    SameKey,
-    NewKeyExists,
     CapacityReached,
-    InvariantViolation,
 };
 
 struct OperationResult {
@@ -34,10 +27,9 @@ struct OperationResult {
     ResultStatus status = ResultStatus::Success;
     ResultCode code = ResultCode::Ok;
     int key = 0;
-    std::optional<int> secondaryKey; // update: the new key
-    std::string message;             // short status line, e.g. "Insertion completed."
-    OperationMetrics metrics;        // final counter values
-    std::vector<int> sequence;       // traversal output
+    std::string message;       // short status line, e.g. "Insertion completed."
+    OperationMetrics metrics;  // final counter values
+    std::vector<int> sequence; // traversal output
     DeletionCase deletionCase = DeletionCase::None;
     bool treeChanged = false;
 

@@ -55,6 +55,7 @@ const char* roleLabel(SecondaryRole role)
     case SecondaryRole::Successor: return "successor";
     case SecondaryRole::Parent: return "parent";
     case SecondaryRole::Target: return "target";
+    case SecondaryRole::Enqueued: return "enqueued";
     case SecondaryRole::None: break;
     }
     return "";
@@ -193,8 +194,10 @@ QRectF TreeCanvas::contentBounds() const
 
 QRectF TreeCanvas::viewportArea() const
 {
-    // Leave space for the overlay badges at the top and the output strip at the bottom.
-    return QRectF(rect()).adjusted(16, 48, -16, -56);
+    // Leave space for the overlay badges at the top and the output strip (plus
+    // the queue strip during a level-order traversal) at the bottom.
+    const bool queueStrip = event_ && event_->operation == OperationType::LevelOrderTraversal;
+    return QRectF(rect()).adjusted(16, 48, -16, queueStrip ? -98 : -56);
 }
 
 QTransform TreeCanvas::worldTransform() const
@@ -438,7 +441,7 @@ void TreeCanvas::drawPendingSlot(QPainter& p) const
     p.setBrush(withAlpha(color, 0.06));
     p.drawEllipse(slot, r * 0.8, r * 0.8);
 
-    const bool inserting = event_->operation == OperationType::Insert || event_->line == PseudoLine::UpdInsert;
+    const bool inserting = event_->operation == OperationType::Insert;
     p.setFont(pixelFont(palette::monoFont(), 11, QFont::DemiBold));
     p.setPen(color);
     const QString label = inserting ? QStringLiteral("+%1").arg(event_->key) : QStringLiteral("null");
@@ -461,12 +464,17 @@ TreeCanvas::NodeStyle TreeCanvas::styleFor(const SnapshotNode& node) const
         s.border = withAlpha(palette::accent, 0.6);
         s.borderWidth = 1.8;
     }
+    // Level-order traversal: every node waiting in the queue gets a dashed ring.
+    const auto& queue = event_->queue;
+    if (std::find(queue.begin(), queue.end(), node.id) != queue.end())
+        s.dashedRing = withAlpha(palette::accent, 0.7);
     if (node.id == event_->secondaryId) {
         switch (event_->secondaryRole) {
         case SecondaryRole::Target: s.dashedRing = palette::error; break;
         case SecondaryRole::Parent: s.dashedRing = palette::textSecondary; break;
         case SecondaryRole::Successor:
         case SecondaryRole::OnlyChild:
+        case SecondaryRole::Enqueued:
         case SecondaryRole::NextNode: s.dashedRing = palette::accent; break;
         case SecondaryRole::None: break;
         }
@@ -624,44 +632,43 @@ void TreeCanvas::drawOverlays(QPainter& p) const
     if (!event_)
         return;
 
-    if (event_->tentative) {
-        const QString text = tr("WORKING COPY  ·  NOT YET COMMITTED");
-        QFont f = palette::uiFont(8, QFont::DemiBold);
-        f.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
-        const QFontMetricsF fm(f);
-        const QRectF pill(area.left(), area.top(), fm.horizontalAdvance(text) + 22, fm.height() + 10);
-        p.setPen(QPen(withAlpha(palette::accent, 0.6), 1));
-        p.setBrush(withAlpha(palette::accent, 0.08));
-        p.drawRoundedRect(pill, 4, 4);
-        p.setFont(f);
-        p.setPen(palette::accent);
-        p.drawText(pill, Qt::AlignCenter, text);
-    }
-
     if (isTraversal(event_->operation)) {
+        // A labelled strip of keys anchored at the bottom-left; `bottom` is its lower edge.
+        auto drawStrip = [&](const QString& label, const QString& text, const QColor& tone, qreal bottom) {
+            QFont lf = palette::uiFont(8, QFont::DemiBold);
+            lf.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
+            const QFont vf = palette::monoFont(10.5, QFont::Medium);
+            const QFontMetricsF lfm(lf);
+            const QFontMetricsF vfm(vf);
+            const QString values = vfm.elidedText(text, Qt::ElideLeft, area.width() * 0.75);
+            const qreal labelWidth = lfm.horizontalAdvance(label);
+            const QRectF strip(area.left(), bottom - 34, labelWidth + vfm.horizontalAdvance(values) + 40, 34);
+            p.setPen(QPen(palette::border, 1));
+            p.setBrush(palette::surface);
+            p.drawRoundedRect(strip, 5, 5);
+            p.setFont(lf);
+            p.setPen(palette::textMuted);
+            p.drawText(strip.adjusted(14, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, label);
+            p.setFont(vf);
+            p.setPen(tone);
+            p.drawText(strip.adjusted(26 + labelWidth, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, values);
+        };
+
         QStringList keys;
         for (int key : event_->sequence)
             keys << QString::number(key);
-        const QString label = tr("OUTPUT");
-        QFont lf = palette::uiFont(8, QFont::DemiBold);
-        lf.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
-        const QFont vf = palette::monoFont(10.5, QFont::Medium);
-        const QFontMetricsF lfm(lf);
-        const QFontMetricsF vfm(vf);
-        const qreal maxWidth = area.width() * 0.75;
-        const QString values = vfm.elidedText(keys.isEmpty() ? QStringLiteral("—") : keys.join(QStringLiteral("  →  ")),
-                                              Qt::ElideLeft, maxWidth);
-        const qreal w = lfm.horizontalAdvance(label) + vfm.horizontalAdvance(values) + 40;
-        const QRectF strip(area.left(), area.bottom() - 34, w, 34);
-        p.setPen(QPen(palette::border, 1));
-        p.setBrush(palette::surface);
-        p.drawRoundedRect(strip, 5, 5);
-        p.setFont(lf);
-        p.setPen(palette::textMuted);
-        p.drawText(strip.adjusted(14, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, label);
-        p.setFont(vf);
-        p.setPen(palette::success);
-        p.drawText(strip.adjusted(26 + lfm.horizontalAdvance(label), 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, values);
+        drawStrip(tr("OUTPUT"), keys.isEmpty() ? QStringLiteral("—") : keys.join(QStringLiteral("  →  ")),
+                  palette::success, area.bottom());
+
+        if (event_->operation == OperationType::LevelOrderTraversal) {
+            QStringList waiting;
+            for (NodeId id : event_->queue) {
+                if (const SnapshotNode* node = snapshot_.find(id))
+                    waiting << QString::number(node->key);
+            }
+            drawStrip(tr("QUEUE  FRONT ›"), waiting.isEmpty() ? tr("empty") : waiting.join(QStringLiteral("   ")),
+                      palette::accent, area.bottom() - 42);
+        }
     }
 
     // Colour legend, bottom-right, only when there is room.

@@ -13,12 +13,10 @@ These images were produced by `tools/capture_screenshots.cpp`. It drives the rea
 | `07-delete-two-children-case.png` | Delete 50: case 3 identified |
 | `08-delete-successor-found.png` | Delete 50: inorder successor 60 found |
 | `09-delete-completed.png` | Delete 50 completed (60 is the new root key) |
-| `10-update-transaction.png` | Update 40 → 65: transaction begins on a working copy |
-| `11-update-reinsert.png` | Update 40 → 65: reinsertion path for 65 |
-| `12-update-committed.png` | Update committed |
-| `13-inorder-midway.png` | Inorder traversal after four outputs |
-| `14-postorder-midway.png` | Postorder traversal after four outputs |
-| `15-algorithm-reference.png` | Algorithm Reference page |
+| `10-inorder-midway.png` | Inorder traversal after four outputs |
+| `11-postorder-midway.png` | Postorder traversal after four outputs |
+| `12-bfs-enqueue.png` | BFS: 40 joins the back of the queue (queue 70, 20, 40) |
+| `13-bfs-completed.png` | BFS completed: output 50, 30, 70, 20, 40, 60, 80, level by level |
 
 To regenerate them:
 

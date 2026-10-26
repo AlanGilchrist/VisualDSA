@@ -99,25 +99,18 @@ int main(int argc, char* argv[])
     capture(window, dir, QStringLiteral("09-delete-completed.png"), is(EventType::OperationCompleted));
 
     window.resetToSample();
-    window.selectModule(Module::Update);
-    window.updateKey(40, 65);
-    capture(window, dir, QStringLiteral("10-update-transaction.png"), is(EventType::TransactionStarted));
-    capture(window, dir, QStringLiteral("11-update-reinsert.png"), [](const AlgorithmEvent& e) {
-        return e.line == PseudoLine::UpdInsert && e.pendingParent != kNoNode;
-    });
-    capture(window, dir, QStringLiteral("12-update-committed.png"), is(EventType::TransactionCommitted));
-
-    window.resetToSample();
     window.selectModule(Module::Traversals);
     window.runTraversal(TraversalOrder::Inorder);
-    capture(window, dir, QStringLiteral("13-inorder-midway.png"),
+    capture(window, dir, QStringLiteral("10-inorder-midway.png"),
             [](const AlgorithmEvent& e) { return e.type == EventType::TraversalNodeVisited && e.sequence.size() == 4; });
     window.runTraversal(TraversalOrder::Postorder);
-    capture(window, dir, QStringLiteral("14-postorder-midway.png"),
+    capture(window, dir, QStringLiteral("11-postorder-midway.png"),
             [](const AlgorithmEvent& e) { return e.type == EventType::TraversalNodeVisited && e.sequence.size() == 4; });
 
-    window.selectModule(Module::Reference);
-    settle(300);
-    window.grab().save(dir.filePath(QStringLiteral("15-algorithm-reference.png")));
+    window.selectModule(Module::Bfs);
+    window.runTraversal(TraversalOrder::LevelOrder);
+    capture(window, dir, QStringLiteral("12-bfs-enqueue.png"),
+            [](const AlgorithmEvent& e) { return e.type == EventType::NodeEnqueued && e.queue.size() == 3; });
+    capture(window, dir, QStringLiteral("13-bfs-completed.png"), is(EventType::OperationCompleted));
     return 0;
 }

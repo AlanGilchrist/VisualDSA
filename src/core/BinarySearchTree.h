@@ -32,11 +32,11 @@ public:
     BinarySearchTree(BinarySearchTree&& other) noexcept;
     BinarySearchTree& operator=(BinarySearchTree&& other) noexcept;
 
-    // --- The five required operations (recorded) ---
+    // --- The required operations (recorded) ---
     OperationRecord insert(int key);
     OperationRecord remove(int key);
     OperationRecord search(int key) const;
-    OperationRecord update(int oldKey, int newKey);
+    // Depth-first (inorder / preorder / postorder) or breadth-first (level order).
     OperationRecord traverse(TraversalOrder order) const;
 
     // --- Tree setup (recorded) ---
@@ -54,13 +54,14 @@ public:
     std::vector<int> inorder() const;
     std::vector<int> preorder() const;
     std::vector<int> postorder() const;
+    std::vector<int> levelOrder() const;
     TreeSnapshot snapshot() const;
     ValidationReport validate() const;
 
     std::size_t capacity() const { return capacity_; }
     void setCapacity(std::size_t capacity) { capacity_ = capacity; }
 
-    // Deep copy that preserves node ids (used for transactional updates).
+    // Deep copy that preserves node ids.
     BinarySearchTree clone() const;
 
     // Releases all nodes iteratively (safe for very deep, skewed trees).

@@ -164,7 +164,7 @@ private slots:
     {
         std::mt19937 rng(20241021); // fixed seed: deterministic
         std::uniform_int_distribution<int> keyDist(-200, 200);
-        std::uniform_int_distribution<int> opDist(0, 3);
+        std::uniform_int_distribution<int> opDist(0, 2);
         BinarySearchTree tree;
         std::set<int> reference;
 
@@ -184,17 +184,6 @@ private slots:
             case 2: {
                 const OperationRecord rec = tree.search(key);
                 QCOMPARE(rec.result.code == ResultCode::KeyFound, reference.count(key) == 1);
-                break;
-            }
-            case 3: {
-                const int to = keyDist(rng);
-                const bool expectOk = reference.count(key) == 1 && key != to && reference.count(to) == 0;
-                const OperationRecord rec = tree.update(key, to);
-                QCOMPARE(rec.result.succeeded(), expectOk);
-                if (expectOk) {
-                    reference.erase(key);
-                    reference.insert(to);
-                }
                 break;
             }
             }

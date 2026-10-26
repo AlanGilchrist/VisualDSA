@@ -44,19 +44,6 @@ const std::vector<PseudoLineSpec> kDelete = {
     {L::DelVerify, 1, "verify BST invariant"},
 };
 
-const std::vector<PseudoLineSpec> kUpdate = {
-    {L::None, 0, "update(old, new):"},
-    {L::UpdFindOld, 1, "node ← search(old)"},
-    {L::UpdOldMissing, 1, "if node = null: reject"},
-    {L::UpdSame, 1, "if new = old: no change"},
-    {L::UpdCheckNew, 1, "if search(new) found: reject"},
-    {L::UpdBegin, 1, "copy ← tree  // transaction"},
-    {L::UpdDelete, 1, "delete(old) on copy"},
-    {L::UpdInsert, 1, "insert(new) on copy"},
-    {L::UpdCommit, 1, "if copy is valid: tree ← copy"},
-    {L::UpdRollback, 1, "else: discard copy (rollback)"},
-};
-
 const std::vector<PseudoLineSpec> kInorder = {
     {L::TrvStart, 0, "output ← [ ];  inorder(root)"},
     {L::TrvDone, 0, "return output"},
@@ -87,6 +74,18 @@ const std::vector<PseudoLineSpec> kPostorder = {
     {L::TrvVisit, 1, "output.append(node.key)"},
 };
 
+const std::vector<PseudoLineSpec> kLevelOrder = {
+    {L::None, 0, "levelorder(root):"},
+    {L::BfsEmpty, 1, "if root = null: return [ ]"},
+    {L::BfsInit, 1, "queue ← [root];  output ← [ ]"},
+    {L::None, 1, "while queue is not empty:"},
+    {L::BfsDequeue, 2, "node ← queue.dequeue()"},
+    {L::BfsVisit, 2, "output.append(node.key)"},
+    {L::BfsEnqueueLeft, 2, "if node.left: enqueue(node.left)"},
+    {L::BfsEnqueueRight, 2, "if node.right: enqueue(node.right)"},
+    {L::BfsDone, 1, "return output"},
+};
+
 const std::vector<PseudoLineSpec> kBuild = {
     {L::None, 0, "build(keys):"},
     {L::BldValidate, 1, "validate: integers, in range, unique"},
@@ -110,15 +109,16 @@ const ComplexityInfo kDeleteComplexity = {
     "Search O(h) + successor search O(h) + O(1) re-linking, so O(h) overall. "
     "Not guaranteed O(log n): this tree does not rebalance."};
 
-const ComplexityInfo kUpdateComplexity = {
-    "O(1)", "O(log n)", "O(n)", "O(n) here (working copy); O(1) in-place",
-    "Two searches, one deletion and one insertion: O(h). This implementation copies "
-    "the tree to make the update atomic, which costs O(n) extra time and space."};
-
 const ComplexityInfo kTraversalComplexity = {
     "O(n)", "O(n)", "O(n)", "O(h) recursion stack + O(n) output",
     "Every node is visited exactly once regardless of shape. Recursion depth equals "
     "the height h: O(log n) when balanced-shaped, O(n) when skewed."};
+
+const ComplexityInfo kLevelOrderComplexity = {
+    "O(n)", "O(n)", "O(n)", "O(w) queue + O(n) output",
+    "Every node is enqueued and dequeued exactly once. The queue holds at most the widest "
+    "level w: about n/2 for a full tree but only 1 for a skewed one, the opposite of the "
+    "depth-first traversals, whose stack grows with the height."};
 
 const ComplexityInfo kBuildComplexity = {
     "O(n log n)", "O(n log n)", "O(n²)", "O(n) for the nodes",
@@ -138,10 +138,10 @@ const std::vector<PseudoLineSpec>& pseudocodeFor(OperationType op)
     case OperationType::Insert: return kInsert;
     case OperationType::Delete: return kDelete;
     case OperationType::Search: return kSearch;
-    case OperationType::Update: return kUpdate;
     case OperationType::InorderTraversal: return kInorder;
     case OperationType::PreorderTraversal: return kPreorder;
     case OperationType::PostorderTraversal: return kPostorder;
+    case OperationType::LevelOrderTraversal: return kLevelOrder;
     case OperationType::Build: return kBuild;
     case OperationType::Clear: return kClear;
     }
@@ -166,10 +166,10 @@ const ComplexityInfo& complexityFor(OperationType op)
     case OperationType::Insert:
     case OperationType::Search: return kSearchPathComplexity;
     case OperationType::Delete: return kDeleteComplexity;
-    case OperationType::Update: return kUpdateComplexity;
     case OperationType::InorderTraversal:
     case OperationType::PreorderTraversal:
     case OperationType::PostorderTraversal: return kTraversalComplexity;
+    case OperationType::LevelOrderTraversal: return kLevelOrderComplexity;
     case OperationType::Build: return kBuildComplexity;
     case OperationType::Clear: return kClearComplexity;
     }

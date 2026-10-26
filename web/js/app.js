@@ -15,8 +15,7 @@
     const $ = (id) => document.getElementById(id);
 
     const Module = Object.freeze({
-        Overview: 'Overview', Insert: 'Insert', Delete: 'Delete', Search: 'Search', Update: 'Update',
-        Traversals: 'Traversals', Reference: 'Reference',
+        Overview: 'Overview', Insert: 'Insert', Delete: 'Delete', Search: 'Search', Traversals: 'Traversals', Bfs: 'Bfs',
     });
 
     const MODULES = [
@@ -28,42 +27,34 @@
             description: 'Locate the key, identify which of the three deletion cases applies, and restructure the tree.' },
         { module: Module.Search, name: 'Search', group: 'OPERATIONS',
             description: 'Compare with each node and discard one subtree per step until the key is found or a null pointer is reached.' },
-        { module: Module.Update, name: 'Update', group: 'OPERATIONS',
-            description: 'Change a key safely: delete the old key and insert the new one inside a transaction.' },
-        { module: Module.Traversals, name: 'Traversals', group: 'OPERATIONS',
-            description: 'Visit every node in inorder, preorder or postorder and watch the output sequence form.' },
-        { module: Module.Reference, name: 'Algorithm Reference', group: 'LEARN',
-            description: 'Pseudocode, complexity and terminology for every operation.' },
+        { module: Module.Traversals, name: 'Depth-first (DFS)', group: 'TRAVERSALS',
+            description: 'Visit every node depth-first in inorder, preorder or postorder and watch the output sequence form.' },
+        { module: Module.Bfs, name: 'Breadth-first (BFS)', group: 'TRAVERSALS',
+            description: 'Visit every node level by level with a queue: the level-order traversal.' },
     ];
 
     function defaultOperation(module) {
         switch (module) {
         case Module.Delete: return OperationType.Delete;
         case Module.Search: return OperationType.Search;
-        case Module.Update: return OperationType.Update;
         case Module.Traversals: return OperationType.InorderTraversal;
+        case Module.Bfs: return OperationType.LevelOrderTraversal;
         case Module.Overview: return OperationType.Build;
         }
         return OperationType.Insert;
     }
 
-    function toneFor(status) {
-        switch (status) {
-        case ResultStatus.Success: return 'success';
-        case ResultStatus.NoChange: return 'neutral';
-        }
-        return 'error';
-    }
+    const toneFor = (status) => (status === ResultStatus.Success ? 'success' : 'error');
 
     function progressText(r) {
         switch (r.operation) {
         case OperationType.Insert: return `Inserting ${r.key}…`;
         case OperationType.Delete: return `Deleting ${r.key}…`;
         case OperationType.Search: return `Searching for ${r.key}…`;
-        case OperationType.Update: return `Updating ${r.key} → ${r.secondaryKey ?? r.key}…`;
         case OperationType.InorderTraversal: return 'Inorder traversal…';
         case OperationType.PreorderTraversal: return 'Preorder traversal…';
         case OperationType.PostorderTraversal: return 'Postorder traversal…';
+        case OperationType.LevelOrderTraversal: return 'Level-order traversal (BFS)…';
         case OperationType.Build: return 'Building tree…';
         case OperationType.Clear: return 'Clearing tree…';
         }
@@ -75,7 +66,6 @@
         case OperationType.Insert: return `Insert ${r.key}`;
         case OperationType.Delete: return `Delete ${r.key}`;
         case OperationType.Search: return `Search ${r.key}`;
-        case OperationType.Update: return `Update ${r.key} → ${r.secondaryKey ?? r.key}`;
         }
         return operationName(r.operation);
     }
@@ -83,9 +73,7 @@
     function statusWord(status) {
         switch (status) {
         case ResultStatus.NotFound: return 'not found';
-        case ResultStatus.NoChange: return 'no change';
         case ResultStatus.Rejected: return 'rejected';
-        case ResultStatus.Failed: return 'failed';
         }
         return 'ok';
     }
@@ -132,7 +120,6 @@
             });
 
             this.buildSidebar();
-            this.buildReference();
             this.connectOperations();
             this.connectPlayback();
             this.installShortcuts();
@@ -172,68 +159,6 @@
             }
         }
 
-        buildReference() {
-            const pre = (op) => `<pre>${pseudocodeFor(op).map((l) => '  '.repeat(l.indent) + escapeHtml(l.text)).join('\n')}</pre>`;
-            const row = (op) => {
-                const c = complexityFor(op);
-                return `<tr><td>${operationName(op)}</td><td class="m">${c.best}</td><td class="m">${c.average}</td>`
-                    + `<td class="m">${c.worst}</td><td class="m">${escapeHtml(c.space)}</td></tr>`;
-            };
-            const Op = OperationType;
-            const sections = [
-                [Op.Search, 'Search',
-                    'Compare the target with the current node. Equal: found. Smaller: continue in the left subtree. Larger: '
-                    + 'continue in the right subtree. Reaching a null pointer proves the key is absent.'],
-                [Op.Insert, 'Insertion',
-                    'Follow the search path for the new key. The first empty child pointer on that path is the only position '
-                    + "where the key keeps every ancestor's ordering rule, so the new leaf is attached there."],
-                [Op.Delete, 'Deletion — three cases',
-                    "<b>Case 1, leaf:</b> clear the parent's pointer. <b>Case 2, one child:</b> link the parent directly to that "
-                    + 'child. <b>Case 3, two children:</b> find the inorder successor (leftmost node of the right subtree), unlink '
-                    + 'it — it never has a left child, so this is case 1 or 2 — then write its key into the target node. The '
-                    + 'successor is larger than everything on the left and smaller than everything else on the right, so the '
-                    + 'order is preserved.'],
-                [Op.Update, 'Update',
-                    "A key's position depends on its value, so overwriting it in place can break the ordering. The update checks "
-                    + 'that the old key exists and the new key does not, then deletes the old key and inserts the new one on a '
-                    + 'working copy. The copy replaces the tree only after it passes the invariant check; otherwise it is '
-                    + 'discarded (rollback).'],
-                [Op.InorderTraversal, 'Inorder traversal  (Left · Root · Right)', 'Outputs the keys of a BST in ascending order.'],
-                [Op.PreorderTraversal, 'Preorder traversal  (Root · Left · Right)',
-                    'Outputs each node before its subtrees. Re-inserting keys in preorder rebuilds the same tree.'],
-                [Op.PostorderTraversal, 'Postorder traversal  (Left · Right · Root)',
-                    'Outputs each node after both subtrees — the order used to free a tree bottom-up.'],
-            ];
-
-            $('reference').innerHTML = `
-                <p class="section">ALGORITHM REFERENCE</p>
-                <h2>Binary Search Tree</h2>
-                <p>A binary tree in which, for every node, all keys in its <b>left subtree are smaller</b> and all keys in its
-                <b>right subtree are larger</b>. This project stores <b>unique integer keys</b>; inserting a duplicate is
-                rejected and leaves the tree unchanged.</p>
-                <p><b>n</b> = number of nodes. <b>h</b> = height = number of edges on the longest root-to-leaf path (empty tree:
-                −1, single node: 0). A balanced-shaped tree has h ≈ log₂ n; inserting sorted keys produces a skewed tree with
-                h = n − 1. This tree does <b>not</b> rebalance itself, so O(log n) is an average, never a guarantee.</p>
-                <h3>Complexity</h3>
-                <div class="table-wrap"><table>
-                    <tr><th>Operation</th><th>Best</th><th>Average</th><th>Worst</th><th>Auxiliary space</th></tr>
-                    ${[Op.Search, Op.Insert, Op.Delete, Op.Update, Op.InorderTraversal, Op.PreorderTraversal, Op.PostorderTraversal].map(row).join('')}
-                </table></div>
-                <p>Search, insertion, deletion and update all walk a single root-to-leaf path, so they are O(h). Traversals
-                touch every node once, so they are O(n) on any shape.</p>
-                ${sections.map(([op, title, text]) => `<h3>${title}</h3><p>${text}</p>${pre(op)}`).join('')}
-                <h3>Reading the canvas</h3>
-                <ul>
-                    <li><span class="accent">Amber</span> — the node being examined, and the path from the root to it.</li>
-                    <li><span class="ok">Green</span> — a found or inserted node, or a node already output by a traversal (with its
-                    output position as a small number).</li>
-                    <li><span class="bad">Red</span> — a node being removed, or a search that ended at a null pointer.</li>
-                    <li>Dashed ring — a second node involved in the step (next node, only child, successor, parent).</li>
-                    <li>Dashed circle — an empty child position (where a key would be inserted, or where a search ended).</li>
-                    <li>Nodes are placed by inorder rank, so reading the tree left to right gives the keys in sorted order.</li>
-                </ul>`;
-        }
-
         // --- Module selection ---------------------------------------------
 
         selectModule(module) {
@@ -247,11 +172,6 @@
             }
             $('module-title').textContent = info.name;
             $('module-description').textContent = info.description;
-            const reference = module === Module.Reference;
-            $('reference').hidden = !reference;
-            $('canvas-frame').hidden = reference;
-            if (!reference)
-                this.canvas.resize();
             for (const page of document.querySelectorAll('.op-page'))
                 page.classList.toggle('active', page.dataset.module === module);
             this.clearError();
@@ -279,25 +199,8 @@
                 });
             }
 
-            $('form-update').addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.clearError();
-                const oldKey = this.readKey($('update-old'), 'Existing key');
-                if (oldKey === null)
-                    return;
-                const newKey = this.readKey($('update-new'), 'New key');
-                if (newKey === null)
-                    return;
-                this.runOperation(() => this.tree.update(oldKey, newKey));
-            });
-            $('update-old').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    $('update-new').focus();
-                }
-            });
-
-            for (const button of document.querySelectorAll('button.traversal')) {
+            // The three depth-first orders and the BFS button all carry a data-order.
+            for (const button of document.querySelectorAll('.op-page button[data-order]')) {
                 button.addEventListener('click', () => {
                     this.clearError();
                     this.runOperation(() => this.tree.traverse(TraversalOrder[button.dataset.order]));
@@ -406,7 +309,7 @@
             const li = document.createElement('li');
             const button = document.createElement('button');
             button.type = 'button';
-            button.dataset.tone = r.status === ResultStatus.NoChange ? 'neutral' : toneFor(r.status);
+            button.dataset.tone = toneFor(r.status);
             button.textContent = `${describe(r)}   ·   ${statusWord(r.status)}`;
             button.title = r.message;
             const entry = { record, button };
@@ -505,7 +408,7 @@
 
             this.canvas.showStep(snapshot, event, this.transitionDuration());
             this.setActiveLine(event.line);
-            this.setExplanation(event, step, count);
+            this.setExplanation(event, snapshot, step, count);
             this.setMeasurements(event.metrics, snapshot.size, snapshot.height());
             this.refreshPlayback();
             this.refreshStats(snapshot);
@@ -577,7 +480,7 @@
             }
         }
 
-        setExplanation(event, step, count) {
+        setExplanation(event, snapshot, step, count) {
             let header = `STEP ${step + 1} / ${count}  ·  ${operationName(event.operation).toUpperCase()}`;
             if (event.deletionCase !== DeletionCase.None)
                 header += `  ·  ${caseName(event.deletionCase)}`;
@@ -594,6 +497,15 @@
             $('explain-output').hidden = !traversal;
             if (traversal)
                 $('explain-output').textContent = event.sequence.length ? event.sequence.join('  →  ') : '—';
+
+            // Level-order traversal: the queue, looked up as keys in this step's snapshot.
+            const levelOrder = event.operation === OperationType.LevelOrderTraversal;
+            $('explain-queue-label').hidden = !levelOrder;
+            $('explain-queue').hidden = !levelOrder;
+            if (levelOrder) {
+                const waiting = event.queue.map((id) => snapshot.find(id)).filter(Boolean).map((n) => n.key);
+                $('explain-queue').textContent = waiting.length ? waiting.join('   ') : 'empty';
+            }
         }
 
         clearExplanation() {
@@ -601,8 +513,8 @@
             $('explain-comparison').hidden = true;
             $('explain-action').textContent = 'Run an operation to see it explained step by step.';
             $('explain-reason').textContent = 'Each step shows the comparison made, the action taken and the reason for it.';
-            $('explain-output-label').hidden = true;
-            $('explain-output').hidden = true;
+            for (const id of ['explain-queue-label', 'explain-queue', 'explain-output-label', 'explain-output'])
+                $(id).hidden = true;
         }
 
         setMeasurements(metrics, size, height) {

@@ -12,15 +12,16 @@ enum class OperationType {
     Insert,
     Delete,
     Search,
-    Update,
     InorderTraversal,
     PreorderTraversal,
     PostorderTraversal,
+    LevelOrderTraversal,
     Build,
     Clear,
 };
 
-enum class TraversalOrder { Inorder, Preorder, Postorder };
+// Inorder, preorder and postorder are depth-first; LevelOrder is breadth-first (BFS).
+enum class TraversalOrder { Inorder, Preorder, Postorder, LevelOrder };
 
 enum class EventType {
     OperationStarted,
@@ -37,10 +38,8 @@ enum class EventType {
     NodeRemoved,
     KeyUpdated,
     TraversalNodeVisited,
-    PhaseStarted,
-    TransactionStarted,
-    TransactionCommitted,
-    TransactionRolledBack,
+    NodeEnqueued,
+    NodeDequeued,
     OperationCompleted,
     OperationRejected,
     OperationFailed,
@@ -55,7 +54,7 @@ enum class Emphasis { Neutral, Active, Success, Error, Removing };
 enum class DeletionCase { None, Leaf, OneChild, TwoChildren };
 
 // Why a second node is highlighted alongside the primary one.
-enum class SecondaryRole { None, NextNode, OnlyChild, Successor, Parent, Target };
+enum class SecondaryRole { None, NextNode, OnlyChild, Successor, Parent, Target, Enqueued };
 
 // Stable identifiers for pseudocode lines. Events refer to these ids, and
 // the pseudocode panel highlights the line with the matching id, so the
@@ -69,11 +68,10 @@ enum class PseudoLine {
     // Deletion
     DelSearch, DelNotFound, DelCaseLeaf, DelRemoveLeaf, DelCaseOne, DelSpliceChild,
     DelCaseTwo, DelFindSucc, DelCopyKey, DelRemoveSucc, DelVerify,
-    // Update
-    UpdFindOld, UpdOldMissing, UpdSame, UpdCheckNew, UpdBegin, UpdDelete, UpdInsert,
-    UpdCommit, UpdRollback,
-    // Traversals (shared ids, arranged differently per order)
+    // Depth-first traversals (shared ids, arranged differently per order)
     TrvStart, TrvDone, TrvCall, TrvNull, TrvLeft, TrvVisit, TrvRight,
+    // Breadth-first (level-order) traversal
+    BfsEmpty, BfsInit, BfsDequeue, BfsVisit, BfsEnqueueLeft, BfsEnqueueRight, BfsDone,
     // Build / clear
     BldValidate, BldInsert, BldDone, ClrRelease, ClrDone,
 };
@@ -109,11 +107,11 @@ struct AlgorithmEvent {
     Direction pendingSide = Direction::None;
 
     DeletionCase deletionCase = DeletionCase::None;
-    bool tentative = false; // true while showing an uncommitted working copy
 
     std::vector<NodeId> path;      // active path from the root to the current node
     std::vector<NodeId> completed; // traversal: nodes already output, in order
     std::vector<int> sequence;     // traversal: keys output so far
+    std::vector<NodeId> queue;     // level-order traversal: nodes waiting, front first
     OperationMetrics metrics;
 
     std::string action; // what the algorithm does in this step
@@ -126,10 +124,10 @@ inline const char* operationName(OperationType op)
     case OperationType::Insert: return "Insert";
     case OperationType::Delete: return "Delete";
     case OperationType::Search: return "Search";
-    case OperationType::Update: return "Update";
     case OperationType::InorderTraversal: return "Inorder traversal";
     case OperationType::PreorderTraversal: return "Preorder traversal";
     case OperationType::PostorderTraversal: return "Postorder traversal";
+    case OperationType::LevelOrderTraversal: return "Level-order traversal (BFS)";
     case OperationType::Build: return "Build tree";
     case OperationType::Clear: return "Clear tree";
     }
@@ -139,7 +137,7 @@ inline const char* operationName(OperationType op)
 inline bool isTraversal(OperationType op)
 {
     return op == OperationType::InorderTraversal || op == OperationType::PreorderTraversal
-        || op == OperationType::PostorderTraversal;
+        || op == OperationType::PostorderTraversal || op == OperationType::LevelOrderTraversal;
 }
 
 inline OperationType traversalOperation(TraversalOrder order)
@@ -148,6 +146,7 @@ inline OperationType traversalOperation(TraversalOrder order)
     case TraversalOrder::Inorder: return OperationType::InorderTraversal;
     case TraversalOrder::Preorder: return OperationType::PreorderTraversal;
     case TraversalOrder::Postorder: return OperationType::PostorderTraversal;
+    case TraversalOrder::LevelOrder: return OperationType::LevelOrderTraversal;
     }
     return OperationType::InorderTraversal;
 }

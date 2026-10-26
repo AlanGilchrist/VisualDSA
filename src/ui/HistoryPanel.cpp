@@ -39,11 +39,10 @@ QString HistoryPanel::describe(const OperationResult& result)
     case OperationType::Insert: return tr("Insert %1").arg(result.key);
     case OperationType::Delete: return tr("Delete %1").arg(result.key);
     case OperationType::Search: return tr("Search %1").arg(result.key);
-    case OperationType::Update:
-        return tr("Update %1 → %2").arg(result.key).arg(result.secondaryKey ? *result.secondaryKey : result.key);
     case OperationType::InorderTraversal: return tr("Inorder traversal");
     case OperationType::PreorderTraversal: return tr("Preorder traversal");
     case OperationType::PostorderTraversal: return tr("Postorder traversal");
+    case OperationType::LevelOrderTraversal: return tr("Level-order traversal (BFS)");
     case OperationType::Build: return tr("Build tree");
     case OperationType::Clear: return tr("Clear tree");
     }
@@ -58,9 +57,7 @@ void HistoryPanel::addRecord(std::shared_ptr<const OperationRecord> record)
     switch (result.status) {
     case ResultStatus::Success: tone = palette::success; status = tr("ok"); break;
     case ResultStatus::NotFound: tone = palette::error; status = tr("not found"); break;
-    case ResultStatus::NoChange: tone = palette::textSecondary; status = tr("no change"); break;
     case ResultStatus::Rejected: tone = palette::error; status = tr("rejected"); break;
-    case ResultStatus::Failed: tone = palette::error; status = tr("failed"); break;
     }
 
     auto* item = new QListWidgetItem(QStringLiteral("%1   ·   %2").arg(describe(result), status));

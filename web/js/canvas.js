@@ -4,7 +4,7 @@
     'use strict';
 
     const VDSA = global.VDSA;
-    const { NO_NODE, Emphasis, SecondaryRole, OperationType, PseudoLine, TreeSnapshot, comparisonText, isTraversal } = VDSA;
+    const { NO_NODE, Emphasis, SecondaryRole, OperationType, TreeSnapshot, comparisonText, isTraversal } = VDSA;
 
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 3.0;
@@ -90,6 +90,7 @@
         case SecondaryRole.Successor: return 'successor';
         case SecondaryRole.Parent: return 'parent';
         case SecondaryRole.Target: return 'target';
+        case SecondaryRole.Enqueued: return 'enqueued';
         }
         return '';
     }
@@ -202,8 +203,10 @@
         }
 
         viewportArea() {
-            // Leave space for the overlay badges at the top and the output strip at the bottom.
-            return { left: 16, top: 48, right: this.width - 16, bottom: this.height - 56 };
+            // Leave space for the overlay badges at the top and the output strip (plus
+            // the queue strip during a level-order traversal) at the bottom.
+            const queueStrip = this.event && this.event.operation === OperationType.LevelOrderTraversal;
+            return { left: 16, top: 48, right: this.width - 16, bottom: this.height - (queueStrip ? 98 : 56) };
         }
 
         toScreen(p) {
@@ -490,7 +493,7 @@
             ctx.stroke();
             ctx.setLineDash([]);
 
-            const inserting = e.operation === OperationType.Insert || e.line === PseudoLine.UpdInsert;
+            const inserting = e.operation === OperationType.Insert;
             ctx.font = this.font(600, 11, P.monoFont);
             ctx.fillStyle = color;
             ctx.textAlign = 'center';
@@ -512,12 +515,16 @@
                 s.border = withAlpha(P.accent, 0.6);
                 s.borderWidth = 1.8;
             }
+            // Level-order traversal: every node waiting in the queue gets a dashed ring.
+            if (e.queue.includes(node.id))
+                s.ring = withAlpha(P.accent, 0.7);
             if (node.id === e.secondaryId) {
                 switch (e.secondaryRole) {
                 case SecondaryRole.Target: s.ring = P.error; break;
                 case SecondaryRole.Parent: s.ring = P.textSecondary; break;
                 case SecondaryRole.Successor:
                 case SecondaryRole.OnlyChild:
+                case SecondaryRole.Enqueued:
                 case SecondaryRole.NextNode: s.ring = P.accent; break;
                 }
             }
@@ -707,53 +714,40 @@
             if (!e)
                 return;
 
-            if (e.tentative) {
-                const text = 'WORKING COPY  ·  NOT YET COMMITTED';
-                ctx.font = this.font(600, 10.5, P.uiFont);
-                if ('letterSpacing' in ctx)
-                    ctx.letterSpacing = '1px';
-                const w = ctx.measureText(text).width + 22;
-                ctx.beginPath();
-                ctx.roundRect(area.left, area.top, w, 26, 4);
-                ctx.fillStyle = withAlpha(P.accent, 0.08);
-                ctx.fill();
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = withAlpha(P.accent, 0.6);
-                ctx.stroke();
-                ctx.fillStyle = P.accent;
-                ctx.textAlign = 'center';
-                ctx.fillText(text, area.left + w / 2, area.top + 13.5);
-                if ('letterSpacing' in ctx)
-                    ctx.letterSpacing = '0px';
-            }
-
             if (isTraversal(e.operation)) {
-                const label = 'OUTPUT';
-                ctx.font = this.font(600, 10.5, P.uiFont);
-                const labelWidth = ctx.measureText(label).width;
-                ctx.font = this.font(500, 13.5, P.monoFont);
-                const maxWidth = (area.right - area.left) * 0.75;
-                const keys = e.sequence.map(String);
-                let values = keys.length ? keys.join('  →  ') : '—';
-                // Elide from the left so the newest output stays visible.
-                for (let skip = 1; ctx.measureText(values).width > maxWidth && skip < keys.length; ++skip)
-                    values = `…  ${keys.slice(skip).join('  →  ')}`;
-                const w = labelWidth + ctx.measureText(values).width + 40;
-                const top = area.bottom - 34;
-                ctx.beginPath();
-                ctx.roundRect(area.left, top, w, 34, 5);
-                ctx.fillStyle = P.surface;
-                ctx.fill();
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = P.border;
-                ctx.stroke();
-                ctx.textAlign = 'left';
-                ctx.font = this.font(600, 10.5, P.uiFont);
-                ctx.fillStyle = P.textMuted;
-                ctx.fillText(label, area.left + 14, top + 17.5);
-                ctx.font = this.font(500, 13.5, P.monoFont);
-                ctx.fillStyle = P.success;
-                ctx.fillText(values, area.left + 26 + labelWidth, top + 17.5);
+                // A labelled strip of keys anchored at the bottom-left; `bottom` is its lower edge.
+                const drawStrip = (label, keys, separator, empty, tone, bottom) => {
+                    ctx.font = this.font(600, 10.5, P.uiFont);
+                    const labelWidth = ctx.measureText(label).width;
+                    ctx.font = this.font(500, 13.5, P.monoFont);
+                    const maxWidth = (area.right - area.left) * 0.75;
+                    let values = keys.length ? keys.join(separator) : empty;
+                    // Elide from the left so the newest keys stay visible.
+                    for (let skip = 1; ctx.measureText(values).width > maxWidth && skip < keys.length; ++skip)
+                        values = `…  ${keys.slice(skip).join(separator)}`;
+                    const w = labelWidth + ctx.measureText(values).width + 40;
+                    const top = bottom - 34;
+                    ctx.beginPath();
+                    ctx.roundRect(area.left, top, w, 34, 5);
+                    ctx.fillStyle = P.surface;
+                    ctx.fill();
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = P.border;
+                    ctx.stroke();
+                    ctx.textAlign = 'left';
+                    ctx.font = this.font(600, 10.5, P.uiFont);
+                    ctx.fillStyle = P.textMuted;
+                    ctx.fillText(label, area.left + 14, top + 17.5);
+                    ctx.font = this.font(500, 13.5, P.monoFont);
+                    ctx.fillStyle = tone;
+                    ctx.fillText(values, area.left + 26 + labelWidth, top + 17.5);
+                };
+
+                drawStrip('OUTPUT', e.sequence.map(String), '  →  ', '—', P.success, area.bottom);
+                if (e.operation === OperationType.LevelOrderTraversal) {
+                    const waiting = e.queue.map((id) => this.snapshot.find(id)).filter(Boolean).map((n) => String(n.key));
+                    drawStrip('QUEUE  FRONT ›', waiting, '   ', 'empty', P.accent, area.bottom - 42);
+                }
             }
 
             // Colour legend, bottom-right, only when there is room.

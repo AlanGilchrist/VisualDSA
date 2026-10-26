@@ -45,18 +45,6 @@
             line(L.DelCopyKey, 2, 'node.key ← succ.key'),
             line(L.DelVerify, 1, 'verify BST invariant'),
         ],
-        [Op.Update]: [
-            line(L.None, 0, 'update(old, new):'),
-            line(L.UpdFindOld, 1, 'node ← search(old)'),
-            line(L.UpdOldMissing, 1, 'if node = null: reject'),
-            line(L.UpdSame, 1, 'if new = old: no change'),
-            line(L.UpdCheckNew, 1, 'if search(new) found: reject'),
-            line(L.UpdBegin, 1, 'copy ← tree  // transaction'),
-            line(L.UpdDelete, 1, 'delete(old) on copy'),
-            line(L.UpdInsert, 1, 'insert(new) on copy'),
-            line(L.UpdCommit, 1, 'if copy is valid: tree ← copy'),
-            line(L.UpdRollback, 1, 'else: discard copy (rollback)'),
-        ],
         [Op.InorderTraversal]: [
             line(L.TrvStart, 0, 'output ← [ ];  inorder(root)'),
             line(L.TrvDone, 0, 'return output'),
@@ -84,6 +72,17 @@
             line(L.TrvRight, 1, 'postorder(node.right)'),
             line(L.TrvVisit, 1, 'output.append(node.key)'),
         ],
+        [Op.LevelOrderTraversal]: [
+            line(L.None, 0, 'levelorder(root):'),
+            line(L.BfsEmpty, 1, 'if root = null: return [ ]'),
+            line(L.BfsInit, 1, 'queue ← [root];  output ← [ ]'),
+            line(L.None, 1, 'while queue is not empty:'),
+            line(L.BfsDequeue, 2, 'node ← queue.dequeue()'),
+            line(L.BfsVisit, 2, 'output.append(node.key)'),
+            line(L.BfsEnqueueLeft, 2, 'if node.left: enqueue(node.left)'),
+            line(L.BfsEnqueueRight, 2, 'if node.right: enqueue(node.right)'),
+            line(L.BfsDone, 1, 'return output'),
+        ],
         [Op.Build]: [
             line(L.None, 0, 'build(keys):'),
             line(L.BldValidate, 1, 'validate: integers, in range, unique'),
@@ -105,12 +104,13 @@
     const deletion = complexity('O(1)', 'O(log n)', 'O(n)', 'O(1) auxiliary (iterative)',
         'Search O(h) + successor search O(h) + O(1) re-linking, so O(h) overall. Not guaranteed O(log n): this tree '
         + 'does not rebalance.');
-    const update = complexity('O(1)', 'O(log n)', 'O(n)', 'O(n) here (working copy); O(1) in-place',
-        'Two searches, one deletion and one insertion: O(h). This implementation copies the tree to make the update '
-        + 'atomic, which costs O(n) extra time and space.');
     const traversal = complexity('O(n)', 'O(n)', 'O(n)', 'O(h) recursion stack + O(n) output',
         'Every node is visited exactly once regardless of shape. Recursion depth equals the height h: O(log n) when '
         + 'balanced-shaped, O(n) when skewed.');
+    const levelOrder = complexity('O(n)', 'O(n)', 'O(n)', 'O(w) queue + O(n) output',
+        'Every node is enqueued and dequeued exactly once. The queue holds at most the widest level w: about n/2 for '
+        + 'a full tree but only 1 for a skewed one, the opposite of the depth-first traversals, whose stack grows '
+        + 'with the height.');
     const build = complexity('O(n log n)', 'O(n log n)', 'O(n²)', 'O(n) for the nodes',
         'n insertions of O(h) each. Inserting already-sorted keys produces a skewed tree, which is the O(n²) worst case.');
     const clear = complexity('O(1)', 'O(1)', 'O(1)', 'O(1); the garbage collector reclaims the nodes',
@@ -129,10 +129,10 @@
         case Op.Insert:
         case Op.Search: return searchPath;
         case Op.Delete: return deletion;
-        case Op.Update: return update;
         case Op.InorderTraversal:
         case Op.PreorderTraversal:
         case Op.PostorderTraversal: return traversal;
+        case Op.LevelOrderTraversal: return levelOrder;
         case Op.Build: return build;
         case Op.Clear: return clear;
         }

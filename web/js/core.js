@@ -16,15 +16,18 @@
         Insert: 'Insert',
         Delete: 'Delete',
         Search: 'Search',
-        Update: 'Update',
         InorderTraversal: 'InorderTraversal',
         PreorderTraversal: 'PreorderTraversal',
         PostorderTraversal: 'PostorderTraversal',
+        LevelOrderTraversal: 'LevelOrderTraversal',
         Build: 'Build',
         Clear: 'Clear',
     });
 
-    const TraversalOrder = Object.freeze({ Inorder: 'Inorder', Preorder: 'Preorder', Postorder: 'Postorder' });
+    // Inorder, preorder and postorder are depth-first; LevelOrder is breadth-first (BFS).
+    const TraversalOrder = Object.freeze({
+        Inorder: 'Inorder', Preorder: 'Preorder', Postorder: 'Postorder', LevelOrder: 'LevelOrder',
+    });
 
     const EventType = Object.freeze({
         OperationStarted: 'OperationStarted',
@@ -41,10 +44,8 @@
         NodeRemoved: 'NodeRemoved',
         KeyUpdated: 'KeyUpdated',
         TraversalNodeVisited: 'TraversalNodeVisited',
-        PhaseStarted: 'PhaseStarted',
-        TransactionStarted: 'TransactionStarted',
-        TransactionCommitted: 'TransactionCommitted',
-        TransactionRolledBack: 'TransactionRolledBack',
+        NodeEnqueued: 'NodeEnqueued',
+        NodeDequeued: 'NodeDequeued',
         OperationCompleted: 'OperationCompleted',
         OperationRejected: 'OperationRejected',
         OperationFailed: 'OperationFailed',
@@ -72,6 +73,7 @@
         Successor: 'Successor',
         Parent: 'Parent',
         Target: 'Target',
+        Enqueued: 'Enqueued',
     });
 
     // Stable identifiers for pseudocode lines. Events refer to these ids and the
@@ -82,18 +84,15 @@
         'SrchInit', 'SrchCompare', 'SrchFound', 'SrchGoLeft', 'SrchGoRight', 'SrchNotFound',
         'DelSearch', 'DelNotFound', 'DelCaseLeaf', 'DelRemoveLeaf', 'DelCaseOne', 'DelSpliceChild',
         'DelCaseTwo', 'DelFindSucc', 'DelCopyKey', 'DelRemoveSucc', 'DelVerify',
-        'UpdFindOld', 'UpdOldMissing', 'UpdSame', 'UpdCheckNew', 'UpdBegin', 'UpdDelete', 'UpdInsert',
-        'UpdCommit', 'UpdRollback',
         'TrvStart', 'TrvDone', 'TrvCall', 'TrvNull', 'TrvLeft', 'TrvVisit', 'TrvRight',
+        'BfsEmpty', 'BfsInit', 'BfsDequeue', 'BfsVisit', 'BfsEnqueueLeft', 'BfsEnqueueRight', 'BfsDone',
         'BldValidate', 'BldInsert', 'BldDone', 'ClrRelease', 'ClrDone',
     ].map((name) => [name, name])));
 
     const ResultStatus = Object.freeze({
         Success: 'Success',   // operation did what was asked
         NotFound: 'NotFound', // key absent; tree unchanged
-        NoChange: 'NoChange', // request was valid but nothing needed to change
-        Rejected: 'Rejected', // request violated a rule; tree unchanged
-        Failed: 'Failed',     // an internal check failed and the change was rolled back
+        Rejected: 'Rejected', // request violated a rule (duplicate key, full tree, ...); tree unchanged
     });
 
     const ResultCode = Object.freeze({
@@ -101,11 +100,7 @@
         KeyFound: 'KeyFound',
         KeyNotFound: 'KeyNotFound',
         DuplicateKey: 'DuplicateKey',
-        KeyMissing: 'KeyMissing',
-        SameKey: 'SameKey',
-        NewKeyExists: 'NewKeyExists',
         CapacityReached: 'CapacityReached',
-        InvariantViolation: 'InvariantViolation',
     });
 
     function operationName(op) {
@@ -113,10 +108,10 @@
         case OperationType.Insert: return 'Insert';
         case OperationType.Delete: return 'Delete';
         case OperationType.Search: return 'Search';
-        case OperationType.Update: return 'Update';
         case OperationType.InorderTraversal: return 'Inorder traversal';
         case OperationType.PreorderTraversal: return 'Preorder traversal';
         case OperationType.PostorderTraversal: return 'Postorder traversal';
+        case OperationType.LevelOrderTraversal: return 'Level-order traversal (BFS)';
         case OperationType.Build: return 'Build tree';
         case OperationType.Clear: return 'Clear tree';
         }
@@ -125,13 +120,14 @@
 
     function isTraversal(op) {
         return op === OperationType.InorderTraversal || op === OperationType.PreorderTraversal
-            || op === OperationType.PostorderTraversal;
+            || op === OperationType.PostorderTraversal || op === OperationType.LevelOrderTraversal;
     }
 
     function traversalOperation(order) {
         switch (order) {
         case TraversalOrder.Preorder: return OperationType.PreorderTraversal;
         case TraversalOrder.Postorder: return OperationType.PostorderTraversal;
+        case TraversalOrder.LevelOrder: return OperationType.LevelOrderTraversal;
         default: return OperationType.InorderTraversal;
         }
     }
@@ -316,18 +312,18 @@
             pendingParent: NO_NODE,
             pendingSide: Direction.None,
             deletionCase: DeletionCase.None,
-            tentative: false,
             path: [],
             completed: [],
             sequence: [],
+            queue: [], // level-order traversal: nodes waiting, front first
             metrics: { nodesVisited: 0, keyComparisons: 0, traversalVisits: 0, structuralChanges: 0 },
             action: '',
             reason: '',
         };
     }
 
-    // Collects the events and snapshots of one operation. Path, sequence and
-    // metrics are running state that gets copied into each emitted event.
+    // Collects the events and snapshots of one operation. Path, sequence, queue
+    // and metrics are running state that gets copied into each emitted event.
     // A non-recording Recorder lets the same algorithm code run without
     // storing anything, e.g. for bulk tree construction.
     class Recorder {
@@ -340,7 +336,6 @@
                     status: ResultStatus.Success,
                     code: ResultCode.Ok,
                     key: 0,
-                    secondaryKey: null,
                     message: '',
                     metrics: null,
                     sequence: [],
@@ -354,9 +349,7 @@
             this.path = [];
             this.completed = [];
             this.sequence = [];
-            this.tentative = false;
-            // While set, every emitted event uses this line (nested phases of update).
-            this.lineOverride = PseudoLine.None;
+            this.queue = []; // level-order traversal only
         }
 
         get result() { return this.record.result; }
@@ -372,13 +365,13 @@
                 return event; // scratch event, discarded
             event.type = type;
             event.operation = this.operation;
-            event.line = this.lineOverride !== PseudoLine.None ? this.lineOverride : line;
+            event.line = line;
             event.snapshotIndex = this.record.snapshots.length - 1;
             event.nodeId = node;
-            event.tentative = this.tentative;
             event.path = this.path.slice();
             event.completed = this.completed.slice();
             event.sequence = this.sequence.slice();
+            event.queue = this.queue.slice();
             event.metrics = { ...this.metrics };
             this.record.events.push(event);
             return event;
@@ -459,7 +452,7 @@
         return out;
     }
 
-    function traversalName(order) { return order; }
+    function traversalName(order) { return order === TraversalOrder.LevelOrder ? 'Level-order' : order; }
 
     // Recursive traversal. Recursion depth equals the height of the tree.
     function walk(node, order, rec, entryLine) {
@@ -517,6 +510,71 @@
         rec.path.pop();
     }
 
+    // Breadth-first (level-order) traversal with an explicit FIFO queue. Every
+    // node is enqueued once and dequeued once; the queue is mirrored into
+    // rec.queue (front first) so each recorded step shows what is waiting.
+    function levelOrderWalk(root, rec) {
+        const queue = [{ node: root, depth: 0 }];
+        rec.queue = [root.id];
+        let currentDepth = -1;
+
+        while (queue.length) {
+            const { node, depth } = queue.shift();
+            rec.queue.shift();
+            ++rec.metrics.nodesVisited;
+
+            const out = rec.emit(EventType.NodeDequeued, PseudoLine.BfsDequeue, node.id);
+            out.key = node.key;
+            out.action = `Dequeue ${node.key} (depth ${depth})`;
+            if (depth !== currentDepth) {
+                out.reason = depth === 0 ? 'The root is the only node at depth 0, so it leaves the queue first.'
+                    : `Every node at depth ${depth - 1} has left the queue, so level ${depth} starts now.`;
+                currentDepth = depth;
+            } else {
+                out.reason = 'It was at the front of the queue: the earliest discovered node still waiting.';
+            }
+
+            rec.sequence.push(node.key);
+            rec.completed.push(node.id);
+            ++rec.metrics.traversalVisits;
+            const visit = rec.emit(EventType.TraversalNodeVisited, PseudoLine.BfsVisit, node.id);
+            visit.key = node.key;
+            visit.emphasis = Emphasis.Success;
+            visit.action = `Visit ${node.key}: append it to the output`;
+            visit.reason = node.isLeaf()
+                ? `A node is output when it leaves the queue. ${node.key} is a leaf, so nothing new is enqueued.`
+                : 'A node is output when it leaves the queue, so shallower nodes always come before deeper ones.';
+
+            for (const side of [Direction.Left, Direction.Right]) {
+                const child = node[side];
+                if (!child)
+                    continue;
+                const waiting = queue.length;
+                queue.push({ node: child, depth: depth + 1 });
+                rec.queue.push(child.id);
+                const e = rec.emit(EventType.NodeEnqueued,
+                    side === Direction.Left ? PseudoLine.BfsEnqueueLeft : PseudoLine.BfsEnqueueRight, node.id);
+                e.key = child.key;
+                e.secondaryId = child.id;
+                e.secondaryRole = SecondaryRole.Enqueued;
+                e.direction = side;
+                e.action = `Enqueue the ${side} child of ${node.key} (${child.key})`;
+                e.reason = waiting === 0
+                    ? `${child.key} is at depth ${depth + 1}. The queue was empty, so it will be dequeued next.`
+                    : `${child.key} is at depth ${depth + 1}. It joins the back of the queue, behind the ${waiting} node(s) already waiting.`;
+            }
+        }
+    }
+
+    // Keys grouped by depth, e.g. "[50] [30, 70] [20, 40, 60, 80]". Snapshot
+    // nodes are in preorder, which keeps each level in left-to-right order.
+    function levelsText(snapshot) {
+        const levels = [];
+        for (const node of snapshot.nodes)
+            (levels[node.depth] || (levels[node.depth] = [])).push(node.key);
+        return levels.map((level) => `[${joinKeys(level)}]`).join(' ');
+    }
+
     function copySubtree(node) {
         if (!node)
             return null;
@@ -559,6 +617,7 @@
         inorder() { return this.traverse(TraversalOrder.Inorder).result.sequence; }
         preorder() { return this.traverse(TraversalOrder.Preorder).result.sequence; }
         postorder() { return this.traverse(TraversalOrder.Postorder).result.sequence; }
+        levelOrder() { return this.traverse(TraversalOrder.LevelOrder).result.sequence; }
 
         snapshot() {
             const nodes = [];
@@ -596,7 +655,7 @@
                 throw new Error(`BST invariant violated: ${report.error}`);
         }
 
-        // Deep copy that preserves node ids (used for transactional updates).
+        // Deep copy that preserves node ids.
         clone() {
             const copy = new BinarySearchTree();
             copy.root = copySubtree(this.root);
@@ -959,168 +1018,37 @@
             return ResultCode.Ok;
         }
 
-        // --- Update ---
-
-        update(oldKey, newKey) {
-            const rec = new Recorder(OperationType.Update);
-            rec.result.key = oldKey;
-            rec.result.secondaryKey = newKey;
-            const original = this.snapshot();
-            rec.capture(original);
-
-            if (!this.root) {
-                const e = rec.emit(EventType.OperationRejected, PseudoLine.UpdOldMissing);
-                e.key = oldKey;
-                e.emphasis = Emphasis.Error;
-                e.action = `Key ${oldKey} does not exist: the tree is empty`;
-                e.reason = 'There is nothing to update. The tree is unchanged.';
-                return rec.finish(ResultStatus.Rejected, ResultCode.KeyMissing, 'Update rejected: the old key does not exist.');
-            }
-
-            const start = rec.emit(EventType.OperationStarted, PseudoLine.UpdFindOld, this.root.id);
-            start.key = oldKey;
-            start.action = `Update ${oldKey} → ${newKey}: locate ${oldKey}`;
-            start.reason = 'An update first confirms that the old key exists.';
-
-            const d = descend(rootLink(this), oldKey, rec,
-                { compare: PseudoLine.UpdFindOld, goLeft: PseudoLine.UpdFindOld, goRight: PseudoLine.UpdFindOld });
-            if (!d.found) {
-                const e = rec.emit(EventType.OperationRejected, PseudoLine.UpdOldMissing);
-                e.key = oldKey;
-                e.emphasis = Emphasis.Error;
-                e.pendingParent = d.parentId;
-                e.pendingSide = d.side;
-                e.action = `Key ${oldKey} does not exist`;
-                e.reason = 'There is nothing to update. The tree is unchanged.';
-                return rec.finish(ResultStatus.Rejected, ResultCode.KeyMissing, 'Update rejected: the old key does not exist.');
-            }
-            const oldId = d.link.get().id;
-
-            const found = rec.emit(EventType.NodeFound, PseudoLine.UpdFindOld, oldId);
-            found.key = oldKey;
-            found.comparedKey = oldKey;
-            found.action = `Found ${oldKey}`;
-            found.reason = 'Next, check that the new key is acceptable.';
-
-            if (oldKey === newKey) {
-                const e = rec.emit(EventType.OperationCompleted, PseudoLine.UpdSame, oldId);
-                e.key = oldKey;
-                e.emphasis = Emphasis.Neutral;
-                e.action = 'No change required';
-                e.reason = `The new key equals the old key (${oldKey}), so the tree already holds the requested value.`;
-                return rec.finish(ResultStatus.NoChange, ResultCode.SameKey, 'No change required: the keys are identical.');
-            }
-
-            rec.path = [];
-            const check = rec.emit(EventType.PhaseStarted, PseudoLine.UpdCheckNew, this.root.id);
-            check.key = newKey;
-            check.action = `Check whether ${newKey} already exists`;
-            check.reason = 'Keys must stay unique, so the new key must not already be stored at another node.';
-
-            const dn = descend(rootLink(this), newKey, rec,
-                { compare: PseudoLine.UpdCheckNew, goLeft: PseudoLine.UpdCheckNew, goRight: PseudoLine.UpdCheckNew });
-            if (dn.found) {
-                const e = rec.emit(EventType.OperationRejected, PseudoLine.UpdCheckNew, dn.link.get().id);
-                e.key = newKey;
-                e.comparedKey = newKey;
-                e.emphasis = Emphasis.Error;
-                e.action = `${newKey} already exists at another node`;
-                e.reason = 'Accepting it would create a duplicate key. The update is rejected and the tree is unchanged.';
-                return rec.finish(ResultStatus.Rejected, ResultCode.NewKeyExists, 'Update rejected: the new key already exists.');
-            }
-            const available = rec.emit(EventType.NodeNotFound, PseudoLine.UpdCheckNew);
-            available.key = newKey;
-            available.pendingParent = dn.parentId;
-            available.pendingSide = dn.side;
-            available.action = `${newKey} is not in the tree`;
-            available.reason = 'The new key is free to use.';
-
-            // Explain why the key cannot simply be overwritten: a key at this
-            // node must lie strictly between its inorder neighbours.
-            const keys = original.inorderKeys();
-            const pos = keys.indexOf(oldKey);
-            const hasPred = pos > 0;
-            const hasSucc = pos + 1 < keys.length;
-            const fitsInPlace = (!hasPred || keys[pos - 1] < newKey) && (!hasSucc || newKey < keys[pos + 1]);
-            let bounds;
-            if (hasPred && hasSucc)
-                bounds = `greater than ${keys[pos - 1]} and less than ${keys[pos + 1]}`;
-            else if (hasPred)
-                bounds = `greater than ${keys[pos - 1]}`;
-            else if (hasSucc)
-                bounds = `less than ${keys[pos + 1]}`;
-            else
-                bounds = 'any value (it is the only node)';
-
-            rec.path = [];
-            const working = this.clone();
-            rec.tentative = true;
-            rec.capture(working);
-            const begin = rec.emit(EventType.TransactionStarted, PseudoLine.UpdBegin, oldId);
-            begin.key = oldKey;
-            begin.action = 'Begin a transaction on a working copy';
-            if (fitsInPlace) {
-                begin.reason = `A key at this node must be ${bounds}. ${newKey} happens to fit here, but in general a `
-                    + `changed key belongs elsewhere, so the update always deletes ${oldKey} and inserts ${newKey}. `
-                    + 'The real tree is untouched until both steps succeed.';
-            } else {
-                begin.reason = `A key at this node must be ${bounds}. Writing ${newKey} here would break the BST order, `
-                    + `so the update deletes ${oldKey} and inserts ${newKey} where its own search path leads. `
-                    + 'The real tree is untouched until both steps succeed.';
-            }
-
-            rec.lineOverride = PseudoLine.UpdDelete;
-            const phase1 = rec.emit(EventType.PhaseStarted, PseudoLine.UpdDelete, oldId);
-            phase1.key = oldKey;
-            phase1.action = `Phase 1: delete ${oldKey} from the working copy`;
-            phase1.reason = 'Standard BST deletion; the matching deletion case is chosen automatically.';
-            const deleted = working.removeSteps(oldKey, rec);
-
-            let inserted = ResultCode.KeyMissing;
-            if (deleted === ResultCode.Ok) {
-                rec.lineOverride = PseudoLine.UpdInsert;
-                rec.path = [];
-                const phase2 = rec.emit(EventType.PhaseStarted, PseudoLine.UpdInsert, working.root ? working.root.id : NO_NODE);
-                phase2.key = newKey;
-                phase2.action = `Phase 2: insert ${newKey} into the working copy`;
-                phase2.reason = 'Standard BST insertion places the new key where its own search path ends.';
-                inserted = working.insertSteps(newKey, rec);
-            }
-            rec.lineOverride = PseudoLine.None;
-
-            const report = working.validate();
-            if (deleted !== ResultCode.Ok || inserted !== ResultCode.Ok || !report.valid) {
-                rec.tentative = false;
-                rec.path = [];
-                rec.capture(this);
-                const e = rec.emit(EventType.TransactionRolledBack, PseudoLine.UpdRollback);
-                e.key = oldKey;
-                e.emphasis = Emphasis.Error;
-                e.action = 'Transaction rolled back';
-                e.reason = report.valid ? 'A phase did not succeed, so the working copy was discarded. The tree is unchanged.'
-                    : `Invariant check failed (${report.error}), so the working copy was discarded. The tree is unchanged.`;
-                return rec.finish(ResultStatus.Failed, ResultCode.InvariantViolation, 'Update failed: changes rolled back.');
-            }
-
-            const newId = rec.path.length ? rec.path[rec.path.length - 1] : NO_NODE;
-            this.assignFrom(working);
-            rec.tentative = false;
-            rec.capture(this);
-            const commit = rec.emit(EventType.TransactionCommitted, PseudoLine.UpdCommit, newId);
-            commit.key = newKey;
-            commit.emphasis = Emphasis.Success;
-            commit.action = 'Update committed';
-            commit.reason = `${oldKey} was replaced by ${newKey}. The working copy passed the BST invariant check before it replaced the tree.`;
-            rec.result.treeChanged = true;
-            return rec.finish(ResultStatus.Success, ResultCode.Ok, 'Update completed.');
-        }
-
         // --- Traversal ---
 
         traverse(order) {
             const rec = new Recorder(traversalOperation(order));
             rec.capture(this);
             const name = traversalName(order);
+
+            if (order === TraversalOrder.LevelOrder) {
+                if (!this.root) {
+                    const e = rec.emit(EventType.OperationCompleted, PseudoLine.BfsEmpty);
+                    e.emphasis = Emphasis.Neutral;
+                    e.action = 'Level-order traversal of an empty tree';
+                    e.reason = 'There is no root to enqueue, so the output sequence is empty.';
+                    return rec.finish(ResultStatus.Success, ResultCode.Ok, 'Traversal completed.');
+                }
+
+                rec.queue = [this.root.id];
+                const start = rec.emit(EventType.OperationStarted, PseudoLine.BfsInit, this.root.id);
+                start.key = this.root.key;
+                start.action = `Level-order traversal (BFS): enqueue the root (${this.root.key})`;
+                start.reason = 'BFS visits the tree level by level. A first-in, first-out queue holds the nodes that '
+                    + 'have been discovered but not yet visited.';
+
+                levelOrderWalk(this.root, rec);
+
+                const done = rec.emit(EventType.OperationCompleted, PseudoLine.BfsDone);
+                done.emphasis = Emphasis.Success;
+                done.action = 'Traversal completed: the queue is empty';
+                done.reason = `Visited ${rec.metrics.traversalVisits} nodes level by level: ${levelsText(this.snapshot())}.`;
+                return rec.finish(ResultStatus.Success, ResultCode.Ok, 'Traversal completed.');
+            }
 
             if (!this.root) {
                 const e = rec.emit(EventType.OperationCompleted, PseudoLine.TrvDone);

@@ -95,8 +95,6 @@ if(VISUALDSA_BUILD_APP)
         src/ui/ComplexityPanel.cpp
         src/ui/HistoryPanel.h
         src/ui/HistoryPanel.cpp
-        src/ui/ReferencePage.h
-        src/ui/ReferencePage.cpp
         src/ui/Theme.h
         src/ui/Theme.cpp
         resources/resources.qrc

@@ -6,6 +6,7 @@
 
 #include <QtTest>
 
+#include <algorithm>
 #include <climits>
 
 using namespace vdsa;
@@ -229,7 +230,8 @@ private slots:
     void traversalsOnEmptyTree()
     {
         const BinarySearchTree tree;
-        for (TraversalOrder order : {TraversalOrder::Inorder, TraversalOrder::Preorder, TraversalOrder::Postorder}) {
+        for (TraversalOrder order : {TraversalOrder::Inorder, TraversalOrder::Preorder, TraversalOrder::Postorder,
+                                     TraversalOrder::LevelOrder}) {
             const OperationRecord rec = tree.traverse(order);
             QCOMPARE(rec.result.status, ResultStatus::Success);
             QVERIFY(rec.result.sequence.empty());
@@ -244,6 +246,76 @@ private slots:
         QCOMPARE(toList(tree.inorder()), QList<int>{7});
         QCOMPARE(toList(tree.preorder()), QList<int>{7});
         QCOMPARE(toList(tree.postorder()), QList<int>{7});
+        QCOMPARE(toList(tree.levelOrder()), QList<int>{7});
+    }
+
+    // --- Breadth-first (level-order) traversal --------------------------------
+    void levelOrderSample()
+    {
+        QCOMPARE(toList(sampleTree().levelOrder()), (QList<int>{50, 30, 70, 20, 40, 60, 80}));
+    }
+
+    void levelOrderOfSkewedTree()
+    {
+        BinarySearchTree tree;
+        for (int key : {1, 2, 3, 4, 5})
+            tree.insert(key);
+        const OperationRecord rec = tree.traverse(TraversalOrder::LevelOrder);
+        QCOMPARE(toList(rec.result.sequence), (QList<int>{1, 2, 3, 4, 5}));
+        // A chain never has more than one node waiting.
+        for (const AlgorithmEvent& e : rec.events)
+            QVERIFY(e.queue.size() <= 1);
+    }
+
+    void levelOrderEmptyTree()
+    {
+        const OperationRecord rec = BinarySearchTree().traverse(TraversalOrder::LevelOrder);
+        QCOMPARE(rec.events.size(), std::size_t(1));
+        QCOMPARE(rec.events.front().line, PseudoLine::BfsEmpty);
+        QVERIFY(rec.result.sequence.empty());
+    }
+
+    void levelOrderQueueIsFirstInFirstOut()
+    {
+        const BinarySearchTree tree = sampleTree();
+        const OperationRecord rec = tree.traverse(TraversalOrder::LevelOrder);
+        const TreeSnapshot& snap = rec.before();
+
+        QCOMPARE(rec.events.front().queue, std::vector<NodeId>{snap.root});
+        int dequeued = 0;
+        int enqueued = 0;
+        std::size_t widest = 0;
+        int lastDepth = 0;
+        for (std::size_t i = 1; i < rec.events.size(); ++i) {
+            const AlgorithmEvent& prev = rec.events[i - 1];
+            const AlgorithmEvent& e = rec.events[i];
+            widest = std::max(widest, e.queue.size());
+            if (e.type == EventType::NodeDequeued) {
+                ++dequeued;
+                // The node leaving is the one that was at the front.
+                QCOMPARE(e.nodeId, prev.queue.front());
+                QCOMPARE(e.queue, std::vector<NodeId>(prev.queue.begin() + 1, prev.queue.end()));
+                // Levels never go backwards.
+                const int depth = snap.find(e.nodeId)->depth;
+                QVERIFY(depth >= lastDepth);
+                lastDepth = depth;
+            } else if (e.type == EventType::NodeEnqueued) {
+                ++enqueued;
+                // New nodes join the back, and are children of the node just dequeued.
+                QCOMPARE(e.queue.back(), e.secondaryId);
+                QCOMPARE(e.secondaryRole, SecondaryRole::Enqueued);
+                QCOMPARE(snap.find(e.secondaryId)->parent, e.nodeId);
+            }
+        }
+        QCOMPARE(dequeued, 7);
+        QCOMPARE(enqueued, 6); // every node except the root
+        QCOMPARE(widest, std::size_t(4)); // the four leaves wait together
+        QVERIFY(rec.events.back().queue.empty());
+        QCOMPARE(rec.result.metrics.nodesVisited, 7);
+        QCOMPARE(rec.result.metrics.traversalVisits, 7);
+        QCOMPARE(rec.result.metrics.keyComparisons, 0);
+        QCOMPARE(QString::fromStdString(rec.events.back().reason),
+                 QString("Visited 7 nodes level by level: [50] [30, 70] [20, 40, 60, 80]."));
     }
 
     void traversalEventsEmitInOrder()
@@ -292,8 +364,8 @@ private slots:
         records.push_back(tree.remove(30));
         records.push_back(tree.remove(50));
         records.push_back(tree.remove(999));
-        records.push_back(tree.update(40, 90));
-        records.push_back(tree.update(60, 80));
+        records.push_back(tree.traverse(TraversalOrder::LevelOrder));
+        records.push_back(BinarySearchTree().traverse(TraversalOrder::LevelOrder));
         records.push_back(tree.rebuild({1, 2, 3}));
         records.push_back(tree.clearTree());
         for (const OperationRecord& rec : records) {

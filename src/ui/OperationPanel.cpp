@@ -2,7 +2,6 @@
 
 #include "Validation.h"
 
-#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -71,9 +70,8 @@ OperationPanel::OperationPanel(QWidget* parent) : QWidget(parent)
         QStringLiteral("SearchKey"),
         tr("Each comparison discards one subtree. Search for a present key (60) and an absent one (65)."),
         tr("Search"), &OperationPanel::searchRequested));
-    pages_.push_back(buildUpdatePage());
     pages_.push_back(buildTraversalPage());
-    pages_.push_back(buildReferencePage());
+    pages_.push_back(buildBfsPage());
 
     error_ = new QLabel(this);
     error_->setObjectName(QStringLiteral("InputError"));
@@ -213,52 +211,14 @@ QWidget* OperationPanel::buildSingleKeyPage(const QString& objectName, const QSt
     return page;
 }
 
-QWidget* OperationPanel::buildUpdatePage()
-{
-    auto* page = new QWidget(this);
-    oldKey_ = keyEdit(QStringLiteral("UpdateOldKey"), tr("Existing key"), page);
-    newKey_ = keyEdit(QStringLiteral("UpdateNewKey"), tr("New key"), page);
-    auto* run = button(tr("Update"), "primary", page);
-    run->setObjectName(QStringLiteral("UpdateButton"));
-
-    auto* grid = new QGridLayout;
-    grid->setHorizontalSpacing(6);
-    grid->setVerticalSpacing(6);
-    grid->addWidget(oldKey_, 0, 0);
-    grid->addWidget(newKey_, 0, 1);
-    grid->addWidget(run, 1, 0, 1, 2);
-
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(8);
-    layout->addWidget(description(tr("A key cannot simply be overwritten: its position depends on its value. "
-                                     "The update deletes the old key and inserts the new one inside a "
-                                     "transaction, so the tree is never left invalid."),
-                                  page));
-    layout->addLayout(grid);
-
-    auto submit = [this] {
-        clearError();
-        int oldKey = 0;
-        int newKey = 0;
-        if (!readKey(oldKey_, oldKey, tr("Existing key")) || !readKey(newKey_, newKey, tr("New key")))
-            return;
-        emit updateRequested(oldKey, newKey);
-    };
-    connect(run, &QPushButton::clicked, this, submit);
-    connect(oldKey_, &QLineEdit::returnPressed, newKey_, [this] { newKey_->setFocus(); });
-    connect(newKey_, &QLineEdit::returnPressed, this, submit);
-    return page;
-}
-
 QWidget* OperationPanel::buildTraversalPage()
 {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
-    layout->addWidget(description(tr("Every node is visited exactly once. Only the moment a node is output "
-                                     "differs between the three orders."),
+    layout->addWidget(description(tr("Depth-first: every node is visited exactly once. Only the moment a node "
+                                     "is output differs between the three orders."),
                                   page));
 
     struct Item {
@@ -285,14 +245,25 @@ QWidget* OperationPanel::buildTraversalPage()
     return page;
 }
 
-QWidget* OperationPanel::buildReferencePage()
+QWidget* OperationPanel::buildBfsPage()
 {
     auto* page = new QWidget(this);
+    auto* run = button(tr("Run BFS"), "primary", page);
+    run->setObjectName(QStringLiteral("BfsButton"));
+
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(description(tr("The workspace shows pseudocode, complexity and terminology for every "
-                                     "operation. Choose an operation in the sidebar to return to the canvas."),
+    layout->setSpacing(8);
+    layout->addWidget(description(tr("Breadth-first search visits the tree level by level, from left to right. "
+                                     "A first-in, first-out queue holds the nodes that have been discovered "
+                                     "but not yet visited."),
                                   page));
+    layout->addWidget(run);
+
+    connect(run, &QPushButton::clicked, this, [this] {
+        clearError();
+        emit traversalRequested(TraversalOrder::LevelOrder);
+    });
     return page;
 }
 

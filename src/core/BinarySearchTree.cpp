@@ -1,6 +1,7 @@
 #include "BinarySearchTree.h"
 
 #include <algorithm>
+#include <deque>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -53,8 +54,8 @@ std::unique_ptr<BSTNode> copySubtree(const BSTNode* node)
 
 } // namespace
 
-// Collects the events and snapshots of one operation. Path, sequence and
-// metrics are running state that gets copied into each emitted event.
+// Collects the events and snapshots of one operation. Path, sequence, queue
+// and metrics are running state that gets copied into each emitted event.
 //
 // A non-recording Recorder (record = false) lets the same algorithm code run
 // without storing events or snapshots, e.g. for bulk tree construction.
@@ -85,13 +86,13 @@ public:
         AlgorithmEvent event;
         event.type = type;
         event.operation = operation_;
-        event.line = lineOverride != PseudoLine::None ? lineOverride : line;
+        event.line = line;
         event.snapshotIndex = static_cast<int>(record_.snapshots.size()) - 1;
         event.nodeId = node;
-        event.tentative = tentative;
         event.path = path;
         event.completed = completed;
         event.sequence = sequence;
+        event.queue = queue;
         event.metrics = metrics;
         record_.events.push_back(std::move(event));
         return record_.events.back();
@@ -114,9 +115,7 @@ public:
     std::vector<NodeId> path;
     std::vector<NodeId> completed;
     std::vector<int> sequence;
-    bool tentative = false;
-    // While set, every emitted event uses this line (nested phases of update).
-    PseudoLine lineOverride = PseudoLine::None;
+    std::vector<NodeId> queue; // level-order traversal only
 
 private:
     bool recording_;
@@ -191,6 +190,7 @@ const char* traversalName(TraversalOrder order)
     case TraversalOrder::Inorder: return "Inorder";
     case TraversalOrder::Preorder: return "Preorder";
     case TraversalOrder::Postorder: return "Postorder";
+    case TraversalOrder::LevelOrder: return "Level-order";
     }
     return "";
 }
@@ -219,6 +219,7 @@ void walk(const BSTNode& node, TraversalOrder order, Recorder& rec, PseudoLine e
         enter.reason = node.isLeaf() ? cat(node.key, " is a leaf, so it can be output immediately.")
                                      : cat("Postorder finishes both subtrees of ", node.key, " before outputting it.");
         break;
+    case TraversalOrder::LevelOrder: break; // breadth-first: see levelOrderWalk()
     }
 
     auto visit = [&]() {
@@ -239,6 +240,7 @@ void walk(const BSTNode& node, TraversalOrder order, Recorder& rec, PseudoLine e
         case TraversalOrder::Postorder:
             out.reason = "Both of its subtrees are finished, so it is output now.";
             break;
+        case TraversalOrder::LevelOrder: break;
         }
     };
     auto goLeft = [&]() {
@@ -254,8 +256,95 @@ void walk(const BSTNode& node, TraversalOrder order, Recorder& rec, PseudoLine e
     case TraversalOrder::Inorder: goLeft(); visit(); goRight(); break;
     case TraversalOrder::Preorder: visit(); goLeft(); goRight(); break;
     case TraversalOrder::Postorder: goLeft(); goRight(); visit(); break;
+    case TraversalOrder::LevelOrder: break;
     }
     rec.path.pop_back();
+}
+
+// Breadth-first (level-order) traversal with an explicit FIFO queue. Every
+// node is enqueued once and dequeued once; the queue is mirrored into
+// rec.queue (front first) so each recorded step shows what is waiting.
+void levelOrderWalk(const BSTNode& root, Recorder& rec)
+{
+    struct Entry {
+        const BSTNode* node;
+        int depth;
+    };
+    std::deque<Entry> queue{{&root, 0}};
+    rec.queue = {root.id};
+    int currentDepth = -1;
+
+    while (!queue.empty()) {
+        const Entry entry = queue.front();
+        queue.pop_front();
+        rec.queue.erase(rec.queue.begin());
+        const BSTNode& node = *entry.node;
+        ++rec.metrics.nodesVisited;
+
+        AlgorithmEvent& out = rec.emit(EventType::NodeDequeued, PseudoLine::BfsDequeue, node.id);
+        out.key = node.key;
+        out.action = cat("Dequeue ", node.key, " (depth ", entry.depth, ")");
+        if (entry.depth != currentDepth) {
+            out.reason = entry.depth == 0
+                             ? std::string("The root is the only node at depth 0, so it leaves the queue first.")
+                             : cat("Every node at depth ", entry.depth - 1, " has left the queue, so level ",
+                                   entry.depth, " starts now.");
+            currentDepth = entry.depth;
+        } else {
+            out.reason = "It was at the front of the queue: the earliest discovered node still waiting.";
+        }
+
+        rec.sequence.push_back(node.key);
+        rec.completed.push_back(node.id);
+        ++rec.metrics.traversalVisits;
+        AlgorithmEvent& visit = rec.emit(EventType::TraversalNodeVisited, PseudoLine::BfsVisit, node.id);
+        visit.key = node.key;
+        visit.emphasis = Emphasis::Success;
+        visit.action = cat("Visit ", node.key, ": append it to the output");
+        visit.reason = node.isLeaf()
+                           ? cat("A node is output when it leaves the queue. ", node.key,
+                                 " is a leaf, so nothing new is enqueued.")
+                           : std::string("A node is output when it leaves the queue, so shallower nodes always "
+                                         "come before deeper ones.");
+
+        for (const BSTNode* child : {node.left.get(), node.right.get()}) {
+            if (!child)
+                continue;
+            const bool left = child == node.left.get();
+            const std::size_t waiting = queue.size();
+            queue.push_back({child, entry.depth + 1});
+            rec.queue.push_back(child->id);
+            AlgorithmEvent& e = rec.emit(EventType::NodeEnqueued,
+                                         left ? PseudoLine::BfsEnqueueLeft : PseudoLine::BfsEnqueueRight, node.id);
+            e.key = child->key;
+            e.secondaryId = child->id;
+            e.secondaryRole = SecondaryRole::Enqueued;
+            e.direction = left ? Direction::Left : Direction::Right;
+            e.action = cat("Enqueue the ", left ? "left" : "right", " child of ", node.key, " (", child->key, ")");
+            e.reason = waiting == 0
+                           ? cat(child->key, " is at depth ", entry.depth + 1,
+                                 ". The queue was empty, so it will be dequeued next.")
+                           : cat(child->key, " is at depth ", entry.depth + 1, ". It joins the back of the queue, "
+                                 "behind the ", waiting, " node(s) already waiting.");
+        }
+    }
+}
+
+// Keys grouped by depth, e.g. "[50] [30, 70] [20, 40, 60, 80]".
+std::string levelsText(const TreeSnapshot& snapshot)
+{
+    std::vector<std::vector<int>> levels;
+    for (const SnapshotNode& node : snapshot.nodes) {
+        if (static_cast<std::size_t>(node.depth) >= levels.size())
+            levels.resize(static_cast<std::size_t>(node.depth) + 1);
+    }
+    // Nodes are stored in preorder, which keeps each level in left-to-right order.
+    for (const SnapshotNode& node : snapshot.nodes)
+        levels[static_cast<std::size_t>(node.depth)].push_back(node.key);
+    std::string text;
+    for (const auto& level : levels)
+        text += (text.empty() ? "[" : " [") + joinKeys(level) + "]";
+    return text;
 }
 
 } // namespace
@@ -343,6 +432,7 @@ int BinarySearchTree::height() const
 std::vector<int> BinarySearchTree::inorder() const { return traverse(TraversalOrder::Inorder).result.sequence; }
 std::vector<int> BinarySearchTree::preorder() const { return traverse(TraversalOrder::Preorder).result.sequence; }
 std::vector<int> BinarySearchTree::postorder() const { return traverse(TraversalOrder::Postorder).result.sequence; }
+std::vector<int> BinarySearchTree::levelOrder() const { return traverse(TraversalOrder::LevelOrder).result.sequence; }
 
 TreeSnapshot BinarySearchTree::snapshot() const
 {
@@ -753,172 +843,6 @@ ResultCode BinarySearchTree::removeSteps(int key, Recorder& rec)
 }
 
 // ---------------------------------------------------------------------------
-// Update
-// ---------------------------------------------------------------------------
-
-OperationRecord BinarySearchTree::update(int oldKey, int newKey)
-{
-    Recorder rec(OperationType::Update);
-    rec.result().key = oldKey;
-    rec.result().secondaryKey = newKey;
-    const TreeSnapshot original = snapshot();
-    rec.capture(original);
-
-    if (!root_) {
-        AlgorithmEvent& e = rec.emit(EventType::OperationRejected, PseudoLine::UpdOldMissing);
-        e.key = oldKey;
-        e.emphasis = Emphasis::Error;
-        e.action = cat("Key ", oldKey, " does not exist: the tree is empty");
-        e.reason = "There is nothing to update. The tree is unchanged.";
-        return rec.finish(ResultStatus::Rejected, ResultCode::KeyMissing, "Update rejected: the old key does not exist.");
-    }
-
-    AlgorithmEvent& start = rec.emit(EventType::OperationStarted, PseudoLine::UpdFindOld, root_->id);
-    start.key = oldKey;
-    start.action = cat("Update ", oldKey, " → ", newKey, ": locate ", oldKey);
-    start.reason = "An update first confirms that the old key exists.";
-
-    DescentResult d;
-    const std::unique_ptr<BSTNode>* oldLink =
-        descend(&root_, oldKey, rec, {PseudoLine::UpdFindOld, PseudoLine::UpdFindOld, PseudoLine::UpdFindOld}, d);
-    if (!d.found) {
-        AlgorithmEvent& e = rec.emit(EventType::OperationRejected, PseudoLine::UpdOldMissing);
-        e.key = oldKey;
-        e.emphasis = Emphasis::Error;
-        e.pendingParent = d.parentId;
-        e.pendingSide = d.side;
-        e.action = cat("Key ", oldKey, " does not exist");
-        e.reason = "There is nothing to update. The tree is unchanged.";
-        return rec.finish(ResultStatus::Rejected, ResultCode::KeyMissing, "Update rejected: the old key does not exist.");
-    }
-    const NodeId oldId = (*oldLink)->id;
-
-    AlgorithmEvent& found = rec.emit(EventType::NodeFound, PseudoLine::UpdFindOld, oldId);
-    found.key = oldKey;
-    found.comparedKey = oldKey;
-    found.action = cat("Found ", oldKey);
-    found.reason = "Next, check that the new key is acceptable.";
-
-    if (oldKey == newKey) {
-        AlgorithmEvent& e = rec.emit(EventType::OperationCompleted, PseudoLine::UpdSame, oldId);
-        e.key = oldKey;
-        e.emphasis = Emphasis::Neutral;
-        e.action = "No change required";
-        e.reason = cat("The new key equals the old key (", oldKey, "), so the tree already holds the requested value.");
-        return rec.finish(ResultStatus::NoChange, ResultCode::SameKey, "No change required: the keys are identical.");
-    }
-
-    rec.path.clear();
-    AlgorithmEvent& check = rec.emit(EventType::PhaseStarted, PseudoLine::UpdCheckNew, root_->id);
-    check.key = newKey;
-    check.action = cat("Check whether ", newKey, " already exists");
-    check.reason = "Keys must stay unique, so the new key must not already be stored at another node.";
-
-    DescentResult dn;
-    const std::unique_ptr<BSTNode>* newLink =
-        descend(&root_, newKey, rec, {PseudoLine::UpdCheckNew, PseudoLine::UpdCheckNew, PseudoLine::UpdCheckNew}, dn);
-    if (dn.found) {
-        AlgorithmEvent& e = rec.emit(EventType::OperationRejected, PseudoLine::UpdCheckNew, (*newLink)->id);
-        e.key = newKey;
-        e.comparedKey = newKey;
-        e.emphasis = Emphasis::Error;
-        e.action = cat(newKey, " already exists at another node");
-        e.reason = "Accepting it would create a duplicate key. The update is rejected and the tree is unchanged.";
-        return rec.finish(ResultStatus::Rejected, ResultCode::NewKeyExists,
-                          "Update rejected: the new key already exists.");
-    }
-    AlgorithmEvent& available = rec.emit(EventType::NodeNotFound, PseudoLine::UpdCheckNew);
-    available.key = newKey;
-    available.pendingParent = dn.parentId;
-    available.pendingSide = dn.side;
-    available.action = cat(newKey, " is not in the tree");
-    available.reason = "The new key is free to use.";
-
-    // Explain why the key cannot simply be overwritten: a key at this node
-    // must lie strictly between its inorder neighbours.
-    const std::vector<int> keys = original.inorderKeys();
-    const auto pos = std::find(keys.begin(), keys.end(), oldKey);
-    const bool hasPred = pos != keys.begin();
-    const bool hasSucc = std::next(pos) != keys.end();
-    const bool fitsInPlace = (!hasPred || *std::prev(pos) < newKey) && (!hasSucc || newKey < *std::next(pos));
-    std::string bounds;
-    if (hasPred && hasSucc)
-        bounds = cat("greater than ", *std::prev(pos), " and less than ", *std::next(pos));
-    else if (hasPred)
-        bounds = cat("greater than ", *std::prev(pos));
-    else if (hasSucc)
-        bounds = cat("less than ", *std::next(pos));
-    else
-        bounds = "any value (it is the only node)";
-
-    rec.path.clear();
-    BinarySearchTree working = clone();
-    rec.tentative = true;
-    rec.capture(working);
-    AlgorithmEvent& begin = rec.emit(EventType::TransactionStarted, PseudoLine::UpdBegin, oldId);
-    begin.key = oldKey;
-    begin.action = "Begin a transaction on a working copy";
-    if (fitsInPlace) {
-        begin.reason = cat("A key at this node must be ", bounds, ". ", newKey,
-                           " happens to fit here, but in general a changed key belongs elsewhere, so the update "
-                           "always deletes ",
-                           oldKey, " and inserts ", newKey, ". The real tree is untouched until both steps succeed.");
-    } else {
-        begin.reason = cat("A key at this node must be ", bounds, ". Writing ", newKey,
-                           " here would break the BST order, so the update deletes ", oldKey, " and inserts ", newKey,
-                           " where its own search path leads. The real tree is untouched until both steps succeed.");
-    }
-
-    rec.lineOverride = PseudoLine::UpdDelete;
-    AlgorithmEvent& phase1 = rec.emit(EventType::PhaseStarted, PseudoLine::UpdDelete, oldId);
-    phase1.key = oldKey;
-    phase1.action = cat("Phase 1: delete ", oldKey, " from the working copy");
-    phase1.reason = "Standard BST deletion; the matching deletion case is chosen automatically.";
-    const ResultCode deleted = working.removeSteps(oldKey, rec);
-
-    ResultCode inserted = ResultCode::KeyMissing;
-    if (deleted == ResultCode::Ok) {
-        rec.lineOverride = PseudoLine::UpdInsert;
-        rec.path.clear();
-        AlgorithmEvent& phase2 =
-            rec.emit(EventType::PhaseStarted, PseudoLine::UpdInsert, working.root_ ? working.root_->id : kNoNode);
-        phase2.key = newKey;
-        phase2.action = cat("Phase 2: insert ", newKey, " into the working copy");
-        phase2.reason = "Standard BST insertion places the new key where its own search path ends.";
-        inserted = working.insertSteps(newKey, rec);
-    }
-    rec.lineOverride = PseudoLine::None;
-
-    const ValidationReport report = working.validate();
-    if (deleted != ResultCode::Ok || inserted != ResultCode::Ok || !report.valid) {
-        rec.tentative = false;
-        rec.path.clear();
-        rec.capture(*this);
-        AlgorithmEvent& e = rec.emit(EventType::TransactionRolledBack, PseudoLine::UpdRollback);
-        e.key = oldKey;
-        e.emphasis = Emphasis::Error;
-        e.action = "Transaction rolled back";
-        e.reason = report.valid ? "A phase did not succeed, so the working copy was discarded. The tree is unchanged."
-                                : "Invariant check failed (" + report.error +
-                                      "), so the working copy was discarded. The tree is unchanged.";
-        return rec.finish(ResultStatus::Failed, ResultCode::InvariantViolation, "Update failed: changes rolled back.");
-    }
-
-    const NodeId newId = rec.path.empty() ? kNoNode : rec.path.back();
-    *this = std::move(working);
-    rec.tentative = false;
-    rec.capture(*this);
-    AlgorithmEvent& commit = rec.emit(EventType::TransactionCommitted, PseudoLine::UpdCommit, newId);
-    commit.key = newKey;
-    commit.emphasis = Emphasis::Success;
-    commit.action = "Update committed";
-    commit.reason = cat(oldKey, " was replaced by ", newKey,
-                        ". The working copy passed the BST invariant check before it replaced the tree.");
-    rec.result().treeChanged = true;
-    return rec.finish(ResultStatus::Success, ResultCode::Ok, "Update completed.");
-}
-
-// ---------------------------------------------------------------------------
 // Traversal
 // ---------------------------------------------------------------------------
 
@@ -927,6 +851,32 @@ OperationRecord BinarySearchTree::traverse(TraversalOrder order) const
     Recorder rec(traversalOperation(order));
     rec.capture(*this);
     const char* name = traversalName(order);
+
+    if (order == TraversalOrder::LevelOrder) {
+        if (!root_) {
+            AlgorithmEvent& e = rec.emit(EventType::OperationCompleted, PseudoLine::BfsEmpty);
+            e.emphasis = Emphasis::Neutral;
+            e.action = "Level-order traversal of an empty tree";
+            e.reason = "There is no root to enqueue, so the output sequence is empty.";
+            return rec.finish(ResultStatus::Success, ResultCode::Ok, "Traversal completed.");
+        }
+
+        rec.queue = {root_->id};
+        AlgorithmEvent& start = rec.emit(EventType::OperationStarted, PseudoLine::BfsInit, root_->id);
+        start.key = root_->key;
+        start.action = cat("Level-order traversal (BFS): enqueue the root (", root_->key, ")");
+        start.reason = "BFS visits the tree level by level. A first-in, first-out queue holds the nodes that have "
+                       "been discovered but not yet visited.";
+
+        levelOrderWalk(*root_, rec);
+
+        AlgorithmEvent& done = rec.emit(EventType::OperationCompleted, PseudoLine::BfsDone);
+        done.emphasis = Emphasis::Success;
+        done.action = "Traversal completed: the queue is empty";
+        done.reason = cat("Visited ", rec.metrics.traversalVisits, " nodes level by level: ", levelsText(snapshot()),
+                          ".");
+        return rec.finish(ResultStatus::Success, ResultCode::Ok, "Traversal completed.");
+    }
 
     if (!root_) {
         AlgorithmEvent& e = rec.emit(EventType::OperationCompleted, PseudoLine::TrvDone);
@@ -949,6 +899,7 @@ OperationRecord BinarySearchTree::traverse(TraversalOrder order) const
     case TraversalOrder::Postorder:
         start.reason = "Postorder = Left → Right → Root. A node is output only after both subtrees are finished.";
         break;
+    case TraversalOrder::LevelOrder: break; // handled above
     }
 
     walk(*root_, order, rec, PseudoLine::TrvCall);

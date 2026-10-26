@@ -21,7 +21,7 @@
 
 Binary Search Trees (BSTs) are central to the study of data structures, yet students often find their behaviour hard to follow from static diagrams. This is especially true of the deletion of a node with two children and the different visiting orders of tree traversals.
 
-This project presents VisualDSA, a native desktop application written in C++17 with the Qt 6 Widgets framework. It demonstrates the five fundamental BST operations: insertion, deletion, searching, updating and traversal (inorder, preorder and postorder).
+This project presents VisualDSA, a native desktop application written in C++17 with the Qt 6 Widgets framework. It demonstrates the fundamental BST operations: insertion, deletion and searching, together with the depth-first traversals (inorder, preorder and postorder) and the breadth-first, level-order traversal (BFS). A matching web version, ported from the same C++ design, runs in any modern browser.
 
 Each operation is executed by a genuine C++ BST implementation built on `std::unique_ptr` ownership. While running, the algorithm records a typed event stream and pointer-free snapshots of the tree. The graphical interface replays this recording step by step and synchronizes four views:
 
@@ -30,7 +30,7 @@ Each operation is executed by a genuine C++ BST implementation built on `std::un
 - a generated explanation of the step, and
 - complexity information that separates theoretical bounds from measured counters.
 
-Updates are performed as transactions on a working copy, so the user never sees an invalid tree presented as the committed state. Correctness is checked by an invariant validator after every structural change and by four automated test suites, which include randomized differential testing against `std::set`. All suites pass.
+The breadth-first traversal shows its first-in, first-out queue at every step, so students can see why the tree is visited level by level. Correctness is checked by an invariant validator after every structural change and by four automated test suites, which include randomized differential testing against `std::set`. All suites pass.
 
 ---
 
@@ -41,7 +41,8 @@ A Binary Search Tree stores keys so that an in-order walk yields them in sorted 
 - which subtree is discarded at each comparison,
 - why a new key must become a leaf at one specific position,
 - how the inorder successor preserves ordering after a deletion, and
-- how the three traversals differ only in *when* a node is output.
+- how the three depth-first traversals differ only in *when* a node is output, and
+- how a queue turns the same tree into a level-by-level (breadth-first) visit.
 
 VisualDSA makes these ideas visible. Its guiding principle is that **every animation corresponds to a real algorithmic step**: the GUI cannot show anything that the C++ algorithm did not actually do.
 
@@ -51,7 +52,7 @@ VisualDSA makes these ideas visible. Its guiding principle is that **every anima
 
 The goal was to design and implement, in C++, an interactive application that:
 
-1. Implements a correct BST supporting insertion, deletion (all three cases), searching, updating and the three depth-first traversals.
+1. Implements a correct BST supporting insertion, deletion (all three cases), searching, the three depth-first traversals and the breadth-first (level-order) traversal.
 2. Visually explains each operation step by step, with synchronized pseudocode and plain-language explanations.
 3. Preserves the BST invariant and data integrity under all inputs, including invalid, duplicate and missing keys.
 4. Reports accurate time and space complexity and keeps measured counters distinct from theoretical bounds.
@@ -69,7 +70,7 @@ The goal was to design and implement, in C++, an interactive application that:
   - explanations,
   - complexity information, and
   - deterministic playback (play, pause, step, restart, speed, timeline).
-- Make updates atomic, so the tree is never left in a partially updated state.
+- Visualize breadth-first traversal together with the queue that drives it.
 - Validate the BST invariant after every successful structural mutation.
 - Provide automated tests for both the algorithms and the visualization logic.
 - Document the algorithms, their complexity, the test results and the user guide.
@@ -205,7 +206,7 @@ class BinarySearchTree {
 Supporting types:
 
 - **`TreeSnapshot`**: a vector of `{id, key, parent, left, right, depth}` records with no pointers.
-- **`AlgorithmEvent`**: holds the event type, operation, pseudocode line id, snapshot index, primary node and emphasis, compared key, direction, secondary node and its role, any empty slot, deletion case, tentative flag, active path, traversal output so far, cumulative metrics, and the action/reason text.
+- **`AlgorithmEvent`**: holds the event type, operation, pseudocode line id, snapshot index, primary node and emphasis, compared key, direction, secondary node and its role, any empty slot, deletion case, active path, traversal output so far, the BFS queue, cumulative metrics, and the action/reason text.
 - **`OperationRecord`**: the result plus its events and snapshots.
 
 **Design decisions:**
@@ -297,28 +298,7 @@ The search is iterative and uses O(1) extra space. On success, the node turns gr
 
 ---
 
-## 16. Updating Algorithm
-
-```
-update(old, new):
-  node ← search(old)
-  if node = null: reject
-  if new = old: no change
-  if search(new) found: reject
-  copy ← tree  // transaction
-  delete(old) on copy
-  insert(new) on copy
-  if copy is valid: tree ← copy
-  else: discard copy (rollback)
-```
-
-Because a key's position is determined by its value, the key is never overwritten in place. The application computes the interval a key at that node must lie in, defined by its inorder neighbours, and explains whether the new key would violate it.
-
-All intermediate steps run on a working copy and are marked as tentative. The canvas displays a "WORKING COPY · NOT YET COMMITTED" banner. The copy replaces the live tree only after the invariant check passes; on any failure it is discarded and the original tree is untouched.
-
----
-
-## 17. Inorder Traversal
+## 16. Inorder Traversal
 
 ```
 inorder(node):
@@ -332,7 +312,7 @@ For the sample tree, the output is 20, 30, 40, 50, 60, 70, 80. For any BST, this
 
 ---
 
-## 18. Preorder Traversal
+## 17. Preorder Traversal
 
 ```
 preorder(node):
@@ -346,7 +326,7 @@ For the sample tree, the output is 50, 30, 20, 40, 70, 60, 80. Re-inserting keys
 
 ---
 
-## 19. Postorder Traversal
+## 18. Postorder Traversal
 
 ```
 postorder(node):
@@ -359,6 +339,28 @@ postorder(node):
 For the sample tree, the output is 20, 40, 30, 60, 80, 70, 50. This is the order used to free a tree bottom-up.
 
 The visualizer records both *entering* a node and *outputting* it. All three traversals enter nodes in the same sequence, but the moment of output differs, and this difference is exactly what the animation highlights. Output nodes turn green with a small badge showing their output position, and an output strip grows at the bottom of the canvas.
+
+---
+
+## 19. Breadth-first (Level-order) Traversal
+
+```
+levelorder(root):
+  if root = null: return [ ]
+  queue ← [root];  output ← [ ]
+  while queue is not empty:
+    node ← queue.dequeue()
+    output.append(node.key)
+    if node.left: enqueue(node.left)
+    if node.right: enqueue(node.right)
+  return output
+```
+
+For the sample tree, the output is 50, 30, 70, 20, 40, 60, 80: level by level, [50] [30, 70] [20, 40, 60, 80].
+
+Breadth-first search replaces the recursion stack with a first-in, first-out queue. A node's children join the back of the queue when it is dequeued, so every node at depth *d* leaves the queue before any node at depth *d* + 1. The visualizer records each dequeue, output and enqueue, and every step carries the queue contents. Waiting nodes get a dashed amber ring. A QUEUE strip above the output strip and the right panel list them from front to back, and the explanation marks the moment each new level starts.
+
+BFS takes Θ(n) time, like the depth-first orders, but its extra space is the queue, O(w) for the widest level w. That is up to about n/2 for a full tree, but only 1 for a skewed tree, the reverse of the depth-first stack.
 
 ---
 
@@ -396,22 +398,22 @@ flowchart TD
     V --> E([Done])
 ```
 
-### Transactional update
+### Breadth-first traversal
 
 ```mermaid
 flowchart TD
-    S([Start]) --> A{old exists?}
-    A -- no --> R1[reject: old key missing]
-    A -- yes --> B{new = old?}
-    B -- yes --> N1[no change required]
-    B -- no --> C{new exists?}
-    C -- yes --> R2[reject: new key exists]
-    C -- no --> D[clone tree → working copy]
-    D --> E[delete old on copy]
-    E --> F[insert new on copy]
-    F --> G{copy valid?}
-    G -- yes --> H[commit: tree ← copy]
-    G -- no --> I[rollback: discard copy]
+    S([Start]) --> E{root = null?}
+    E -- yes --> R0[return empty output]
+    E -- no --> I[queue ← root]
+    I --> Q{queue empty?}
+    Q -- yes --> D([return output])
+    Q -- no --> DQ[node ← dequeue front]
+    DQ --> O[append node.key to output]
+    O --> L{left child?}
+    L -- yes --> EL[enqueue left child] --> RC{right child?}
+    L -- no --> RC
+    RC -- yes --> ER[enqueue right child] --> Q
+    RC -- no --> Q
 ```
 
 ---
@@ -425,8 +427,8 @@ n = number of nodes; h = height in edges.
 | Search | O(1) | O(log n) | O(n) | O(1), iterative |
 | Insertion | O(1) | O(log n) | O(n) | O(1), iterative |
 | Deletion | O(1) | O(log n) | O(n) | O(1), iterative |
-| Update | O(1) | O(log n) | O(n) | O(n) with a transactional copy (O(1) in place) |
-| Inorder / Preorder / Postorder | O(n) | O(n) | O(n) | O(h) stack + O(n) output |
+| Inorder / Preorder / Postorder (DFS) | O(n) | O(n) | O(n) | O(h) stack + O(n) output |
+| Level order (BFS) | O(n) | O(n) | O(n) | O(w) queue + O(n) output, w = widest level |
 
 All path-based operations cost O(h). Since this tree does not rebalance, h can reach n − 1, so O(log n) is only the average case.
 
@@ -454,7 +456,7 @@ Green and red are used only for meaningful states. Colours are defined once as t
 | Region | Contents |
 |---|---|
 | Top bar | VisualDSA wordmark, subtitle, Reset, Help, About |
-| Sidebar | Overview, Insert, Delete, Search, Update, Traversals, Algorithm Reference |
+| Sidebar | Workspace: Overview · Operations: Insert, Delete, Search · Traversals: Depth-first (DFS), Breadth-first (BFS) |
 | Workspace | Module title and description; root, node count, height and selected-node information; status badge; the tree canvas with zoom, fit and actual-size controls |
 | Right panel | Operation inputs, current-step explanation, synchronized pseudocode, complexity (theoretical vs. measured), operation history |
 | Playback bar | Previous, play/pause, next, restart, speed (0.5×–4×), timeline, step counter |
@@ -467,7 +469,7 @@ Screenshots of every operation are in [`screenshots/`](../screenshots). Usage in
 
 - **Unit testing (Qt Test).** The core engine is tested without any GUI: each operation, each edge case and the event stream itself.
 - **Invariant testing.** The validator is tested against deliberately invalid trees. The live tree is validated after every operation in the randomized test.
-- **Differential testing.** 3000 seeded random operations (insert, delete, search, update) are compared against `std::set` as a reference model.
+- **Differential testing.** 3000 seeded random operations (insert, delete, search) are compared against `std::set` as a reference model.
 - **Stress testing.** A 20,000-node skewed tree is built, cleared and destroyed to confirm that deallocation does not overflow the stack.
 - **GUI testing.** The `offscreen` Qt platform is used to test:
   - layout overlap,
@@ -482,15 +484,15 @@ Screenshots of every operation are in [`screenshots/`](../screenshots). Usage in
 
 ## 24. Test Cases and Results
 
-Tests were executed on 2026-10-21 (Windows 11, MSVC 19.44, Qt 6.8.3) with `ctest --test-dir build --output-on-failure`.
+Tests were executed on 2026-10-26 (Windows 11, MSVC 19.44, Qt 6.8.3) with `ctest --test-dir build --output-on-failure`.
 
 | Suite | Coverage | QtTest results | Status |
 |---|---|---|---|
-| `tst_binarysearchtree` | insertion, search, traversals, pseudocode mapping, input parsing | 38 | Passed |
-| `tst_treeoperations` | all deletion cases, update scenarios, rollback, snapshots, metrics | 31 | Passed |
+| `tst_binarysearchtree` | insertion, search, DFS and BFS traversals (including queue order), pseudocode mapping, input parsing | 42 | Passed |
+| `tst_treeoperations` | all deletion cases, snapshots, metrics, tree management | 20 | Passed |
 | `tst_treeinvariants` | validator, snapshots, clone, deep tree, randomized vs. `std::set` | 14 | Passed |
-| `tst_visualization` | layout, canvas, controller, main-window integration | 22 | Passed |
-| **Total** | | **105** | **100% passed** |
+| `tst_visualization` | layout, canvas, controller, main-window integration (including BFS) | 23 | Passed |
+| **Total** | | **99** | **100% passed** |
 
 Representative cases:
 
@@ -500,9 +502,8 @@ Representative cases:
 | Delete leaf | delete 20 | preorder 50, 30, 40, 70, 60, 80 | Pass |
 | Delete two children | delete 30 | successor 40; preorder 50, 40, 20, 70, 60, 80 | Pass |
 | Delete missing | delete 65 | not found; tree unchanged | Pass |
-| Update across branches | 20 → 65 | 65 becomes the right child of 60 | Pass |
-| Conflicting update | 40 → 60 | rejected; tree identical, including node ids | Pass |
-| Traversals | sample tree | inorder, preorder and postorder as in sections 17–19 | Pass |
+| Depth-first traversals | sample tree | inorder, preorder and postorder as in sections 16–18 | Pass |
+| Breadth-first traversal | sample tree | 50, 30, 70, 20, 40, 60, 80; queue is first-in, first-out; at most 4 nodes waiting | Pass |
 | Invalid input | `abc`, `4.5`, `99999999999`, `10, 20, 10` | specific error message; tree unchanged | Pass |
 
 The complete table is in [`TEST_CASES.md`](TEST_CASES.md).
@@ -514,8 +515,7 @@ The complete table is in [`TEST_CASES.md`](TEST_CASES.md).
 - The tree is **not self-balancing**, so skewed inputs degrade operations to O(n). This is intentional, to demonstrate the worst case.
 - Keys are integers in −9999 to 9999, and a tree holds at most 64 nodes, so every node stays readable on screen. The core engine itself is not limited.
 - Every structural change stores a full snapshot, which costs O(n). This is negligible at the supported tree sizes but would need a diff-based approach for very large trees.
-- The transactional update copies the tree, using O(n) extra time and space.
-- Only depth-first traversals are visualized; level-order (BFS) is not included.
+- There is no update operation. Changing a key means deleting it and inserting the new key.
 - The GUI was tested on Windows 11. The Linux build instructions are provided but were not executed for this report.
 - Operation history is kept in memory only and is lost when the application closes.
 
@@ -524,7 +524,7 @@ The complete table is in [`TEST_CASES.md`](TEST_CASES.md).
 ## 26. Future Enhancements
 
 - Self-balancing variants (AVL, red-black) with animated rotations, compared side by side with the plain BST.
-- Level-order traversal, plus iterative traversals with an explicit, visualized stack.
+- Iterative depth-first traversals with an explicit, visualized stack, to contrast with the BFS queue.
 - Inorder predecessor as a user-selectable alternative for deletion.
 - Exporting a run as an image sequence or GIF for lecture slides.
 - Saving and loading trees and histories to files.
@@ -535,7 +535,7 @@ The complete table is in [`TEST_CASES.md`](TEST_CASES.md).
 
 ## 27. Conclusion
 
-VisualDSA meets its objectives. It implements a correct, memory-safe Binary Search Tree in C++17 with all five required operations, and visualizes each operation through a replay of the steps the real algorithm took. The architecture keeps the algorithm engine independent of Qt. Recording typed events with pointer-free snapshots allows deterministic playback in both directions, and update is designed as a transaction so the tree's integrity is preserved even when an operation is rejected.
+VisualDSA meets its objectives. It implements a correct, memory-safe Binary Search Tree in C++17 with insertion, deletion, search, depth-first and breadth-first traversal, and visualizes each operation through a replay of the steps the real algorithm took. The architecture keeps the algorithm engine independent of Qt. Recording typed events with pointer-free snapshots allows deterministic playback in both directions, and the invariant is checked after every structural change, so the tree's integrity is preserved even when an operation is rejected.
 
 The automated tests verify the algorithms against expected results and against a reference model, and the GUI tests confirm that what is shown on screen stays synchronized with the algorithm's actual state. The result is a demonstration tool suitable for teaching BST concepts in a classroom.
 

@@ -110,33 +110,7 @@ The implementation keeps a pointer to the **owning link**, a `std::unique_ptr<BS
 
 Missing keys are reported as `NotFound` and the tree is unchanged.
 
-## 5. Update
-
-```
-update(old, new):
-  node ← search(old)
-  if node = null: reject
-  if new = old: no change
-  if search(new) found: reject
-  copy ← tree  // transaction
-  delete(old) on copy
-  insert(new) on copy
-  if copy is valid: tree ← copy
-  else: discard copy (rollback)
-```
-
-A key's position in a BST depends on its value, so overwriting it in place is not generally safe. In the sample tree, writing 65 into the node that holds 40 would place 65 in the *left* subtree of 50, which violates the ordering. An in-place write is only safe when the new key still lies strictly between the old key's inorder predecessor and successor. The application computes this bound and explains it at the "begin transaction" step.
-
-The update is **logically atomic**:
-
-- The checks happen first. If the old key is missing, the new key already exists, or the keys are identical, nothing changes.
-- The deletion and insertion run on a deep **working copy**, made by `clone()`, which preserves node ids.
-- The copy replaces the live tree only after `validate()` passes. Otherwise it is discarded and the original is untouched (rollback).
-- Every event during this phase is marked `tentative`. The canvas shows a "WORKING COPY · NOT YET COMMITTED" badge, so the viewer never sees an uncommitted state presented as the real tree.
-
-This differs from changing an array element: an array position is independent of the value stored there, but a BST position is *determined by* the value.
-
-## 6. Traversals
+## 5. Depth-first traversals
 
 All three are recursive, with recursion depth equal to the height *h*.
 
@@ -163,6 +137,34 @@ For the sample tree:
 | Preorder | 50, 30, 20, 40, 70, 60, 80 |
 | Postorder | 20, 40, 30, 60, 80, 70, 50 |
 
+## 6. Breadth-first traversal (BFS, level order)
+
+```
+levelorder(root):
+  if root = null: return [ ]
+  queue ← [root];  output ← [ ]
+  while queue is not empty:
+    node ← queue.dequeue()
+    output.append(node.key)
+    if node.left: enqueue(node.left)
+    if node.right: enqueue(node.right)
+  return output
+```
+
+Breadth-first search visits the tree **level by level**, left to right. It replaces the recursion stack of the depth-first orders with an explicit first-in, first-out **queue** (`std::deque` in the implementation). A node's children are discovered when the node is dequeued and join the back of the queue, behind every node already waiting. Every node of depth *d* is therefore dequeued before any node of depth *d* + 1.
+
+Each node is enqueued once and dequeued once, so the traversal is O(n). The queue never holds more than about one level plus part of the next. For a full tree that is up to the widest level (4 leaves in the sample tree). A skewed tree never has more than one node waiting.
+
+The visualizer records:
+
+- `NodeDequeued` when a node leaves the front of the queue. The explanation notes when a new level starts.
+- `TraversalNodeVisited` when it is appended to the output.
+- `NodeEnqueued` for each child added to the back of the queue. The child is the secondary node, with role "enqueued".
+
+Every event also carries the queue contents at that moment (`AlgorithmEvent::queue`, front first). The canvas draws a dashed ring around every waiting node and a **QUEUE** strip above the OUTPUT strip. The right panel lists the queue from front to back.
+
+For the sample tree the output is 50, 30, 70, 20, 40, 60, 80. The final step groups it by level: [50] [30, 70] [20, 40, 60, 80].
+
 ## 7. Freeing the tree
 
 Destroying a long chain of `unique_ptr`s recursively can overflow the call stack on a skewed tree. `clear()` frees nodes iteratively:
@@ -176,7 +178,7 @@ This takes O(n) time and O(1) extra space and allocates nothing. The destructor 
 
 Each operation creates a `Recorder` that collects:
 
-- **Events** (`AlgorithmEvent`): the event type, pseudocode line id, primary and secondary node ids and their roles, the compared keys, an empty slot if there is one, the active path, traversal output so far, cumulative metrics, and the action/reason text.
+- **Events** (`AlgorithmEvent`): the event type, pseudocode line id, primary and secondary node ids and their roles, the compared keys, an empty slot if there is one, the active path, traversal output so far, the BFS queue, cumulative metrics, and the action/reason text.
 - **Snapshots** (`TreeSnapshot`): pointer-free copies of the tree structure. A new snapshot is taken only when the structure changes, and each event stores the index of its snapshot.
 
 The result is an `OperationRecord` that never points into the live tree. It can be replayed forwards and backwards at any time, including from the history list after the tree has changed. Bulk construction (`rebuild`) runs the same insertion code with recording turned off.

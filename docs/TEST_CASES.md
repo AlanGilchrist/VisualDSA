@@ -4,19 +4,19 @@
 
 | Item | Value |
 |---|---|
-| Date executed | 2026-10-21 |
+| Date executed | 2026-10-26 |
 | Platform | Windows 11 (x64) |
 | Compiler | MSVC 19.44 (Visual Studio 2022 Build Tools), Release, `/W4 /permissive-` |
 | Qt | 6.8.3 (msvc2022_64) |
 | Command | `ctest --test-dir build --output-on-failure` |
-| Result | **4 / 4 test executables passed: 105 QtTest results, 0 failed, 0 skipped** |
+| Result | **4 / 4 test executables passed: 99 QtTest results, 0 failed, 0 skipped** |
 
 | Executable | QtTest results* | Status |
 |---|---|---|
-| `tst_binarysearchtree` | 38 | Passed |
-| `tst_treeoperations` | 31 | Passed |
+| `tst_binarysearchtree` | 42 | Passed |
+| `tst_treeoperations` | 20 | Passed |
 | `tst_treeinvariants` | 14 | Passed |
-| `tst_visualization` (offscreen GUI) | 22 | Passed |
+| `tst_visualization` (offscreen GUI) | 23 | Passed |
 
 \* QtTest counts `initTestCase`/`cleanupTestCase` and each data row of data-driven tests as separate results.
 
@@ -50,18 +50,22 @@ The sample tree used throughout is built by inserting `50, 30, 70, 20, 40, 60, 8
 | S5 | `searchEmptyTree` | 10 on empty tree | NotFound, 1 event, 0 visits | as expected | Pass |
 | S6 | `searchDoesNotModifyTree` | 40, 41 | tree unchanged | as expected | Pass |
 
-## C. Traversals (`tst_binarysearchtree`)
+## C. Traversals: depth-first and breadth-first (`tst_binarysearchtree`)
 
 | ID | Test | Expected | Status |
 |---|---|---|---|
 | T1 | `inorderSample` | 20, 30, 40, 50, 60, 70, 80 | Pass |
 | T2 | `preorderSample` | 50, 30, 20, 40, 70, 60, 80 | Pass |
 | T3 | `postorderSample` | 20, 40, 30, 60, 80, 70, 50 | Pass |
-| T4 | `traversalsOnEmptyTree` | all three return an empty sequence | Pass |
-| T5 | `traversalsOnSingleNode` | all three return [7] | Pass |
+| T4 | `traversalsOnEmptyTree` | all four orders return an empty sequence | Pass |
+| T5 | `traversalsOnSingleNode` | all four orders return [7] | Pass |
 | T6 | `traversalEventsEmitInOrder` | output events in postorder; progressive sequence correct; 7 visits | Pass |
 | T7 | `inorderIsSortedForArbitraryTree` | inorder output is sorted | Pass |
-| T8 | `everyEventLineExistsInListing` | every event of 15 different operations maps to a line in its pseudocode listing and a valid snapshot | Pass |
+| T8 | `everyEventLineExistsInListing` | every event of 15 different operations (including BFS on a full and an empty tree) maps to a line in its pseudocode listing and a valid snapshot | Pass |
+| T9 | `levelOrderSample` | BFS outputs 50, 30, 70, 20, 40, 60, 80 | Pass |
+| T10 | `levelOrderOfSkewedTree` | chain 1..5 outputs 1, 2, 3, 4, 5; the queue never holds more than 1 node | Pass |
+| T11 | `levelOrderEmptyTree` | a single event on the `if root = null` line; empty output | Pass |
+| T12 | `levelOrderQueueIsFirstInFirstOut` | each dequeued node was at the front; each enqueued child joins the back and is a child of the node just dequeued; depths never decrease; 7 dequeues, 6 enqueues, widest queue 4, empty at the end; final reason `[50] [30, 70] [20, 40, 60, 80]` | Pass |
 
 ## D. Input validation (`tst_binarysearchtree`)
 
@@ -92,34 +96,18 @@ The sample tree used throughout is built by inserting `50, 30, 70, 20, 40, 60, 8
 | D11 | `deleteFromEmptyTree` | delete 1 | NotFound | Pass |
 | D12 | `deleteEveryKeyInEveryOrder` | 4 orders × 7 deletions | valid after every step, empty at the end | Pass |
 
-## F. Update (`tst_treeoperations`)
-
-| ID | Test | Input | Expected | Status |
-|---|---|---|---|---|
-| U1 | `updateValidKey` | 40 → 45 | inorder 20, 30, 45, 50, 60, 70, 80; committed | Pass |
-| U2 | `updateMovesKeyToOtherBranch` | 20 → 65 | 65 becomes the right child of 60 | Pass |
-| U3 | `updateRootWithTwoChildren` | 50 → 10 | inorder 10, 20, 30, 40, 60, 70, 80 | Pass |
-| U4 | `updateSingleNodeTree` | 5 → 6 | root 6 | Pass |
-| U5 | `updateMissingOldKeyRejected` | 41 → 42 | Rejected / KeyMissing; no transaction started | Pass |
-| U6 | `updateConflictingNewKeyRejected` | 40 → 60 | Rejected / NewKeyExists; tree unchanged | Pass |
-| U7 | `updateSameKeyIsNoOp` | 30 → 30 | NoChange / SameKey | Pass |
-| U8 | `updateOnEmptyTreeRejected` | 1 → 2 | KeyMissing | Pass |
-| U9 | `updateIntermediateStatesAreTentativeAndValid` | 30 → 75 | intermediate events tentative; every snapshot valid; nested lines mapped to update pseudocode | Pass |
-| U10 | `failedUpdatePreservesOriginalTree` | three failing updates | ids, keys and links identical | Pass |
-| U11 | `updateSequenceKeepsInvariant` | 6 chained updates | valid, size 7 throughout | Pass |
-
-## G. Recording and tree management (`tst_treeoperations`)
+## F. Recording and tree management (`tst_treeoperations`)
 
 | ID | Test | Expected | Status |
 |---|---|---|---|
 | R1 | `snapshotsAreIndependentOfLiveTree` | a recorded delete still shows the old tree after clear and rebuild | Pass |
-| R2 | `metricsAreCumulativeAndMonotonic` | counters never decrease across events | Pass |
+| R2 | `metricsAreCumulativeAndMonotonic` | counters never decrease across the events of delete 50; 2 structural changes | Pass |
 | R3 | `rebuildRejectsDuplicatesWithoutChangingTree` | [5, 6, 5] rejected; tree unchanged | Pass |
 | R4 | `rebuildReplacesTreeAndKeepsIdsUnique` | new ids never collide with old ones | Pass |
 | R5 | `clearTreeEmptiesEverything` | before 7, after 0 | Pass |
 | R6 | `moveAssignmentTransfersOwnership` | moved tree valid, size 7 | Pass |
 
-## H. Tree invariants (`tst_treeinvariants`)
+## G. Tree invariants (`tst_treeinvariants`)
 
 | ID | Test | Expected | Status |
 |---|---|---|---|
@@ -134,9 +122,9 @@ The sample tree used throughout is built by inserting `50, 30, 70, 20, 40, 60, 8
 | N9 | `validateSnapshotDetectsInconsistency` | broken parent link detected | Pass |
 | N10 | `cloneIsDeepAndPreservesIds` | changing the clone leaves the original intact | Pass |
 | N11 | `deepSkewedTreeIsDestroyedSafely` | 20,000-node chain cleared and destroyed without stack overflow | Pass |
-| N12 | `randomizedOperationsMatchReferenceSet` | 3000 seeded random operations agree with `std::set`; valid after each | Pass |
+| N12 | `randomizedOperationsMatchReferenceSet` | 3000 seeded random inserts, deletes and searches agree with `std::set`; valid after each | Pass |
 
-## I. Visualization and GUI (`tst_visualization`, offscreen platform)
+## H. Visualization and GUI (`tst_visualization`, offscreen platform)
 
 | ID | Test | Expected | Status |
 |---|---|---|---|
@@ -155,17 +143,24 @@ The sample tree used throughout is built by inserting `50, 30, 70, 20, 40, 60, 8
 | G13 | `controllerSpeedChangesInterval` | 0.5× → 2000 ms, 2× → 500 ms | Pass |
 | G14 | `mainWindowStartsWithSampleTree` | 7 nodes, 1 history entry | Pass |
 | G15 | `eventPseudocodeAndExplanationStayInSync` | at every step of delete 30: pseudocode line, explanation text, canvas highlight, node count and measured counter match the event | Pass |
-| G16 | `invalidInputDoesNotTouchTree` | 5 invalid inputs show errors and change nothing; `45` then inserts | Pass |
-| G17 | `duplicateTreeInputIsRejected` | `10, 20, 10` rejected with the uniqueness message; tree unchanged | Pass |
-| G18 | `resetRestoresSampleTree` | after changes and a clear, Reset gives preorder 50, 30, 20, 40, 70, 60, 80 | Pass |
-| G19 | `historyReplayShowsRecordedState` | a replayed insert shows 8 nodes while the live tree is empty | Pass |
-| G20 | `closingWhilePlayingIsSafe` | deleting the window mid-playback does not crash | Pass |
+| G16 | `levelOrderStepsStayInSync` | BFS from the BFS module: 22 steps; at every step the pseudocode line, explanation and canvas queue match the event; the tree is unchanged | Pass |
+| G17 | `invalidInputDoesNotTouchTree` | 5 invalid inputs show errors and change nothing; `45` then inserts | Pass |
+| G18 | `duplicateTreeInputIsRejected` | `10, 20, 10` rejected with the uniqueness message; tree unchanged | Pass |
+| G19 | `resetRestoresSampleTree` | after an insert, a delete, a BFS and a clear, Reset gives preorder 50, 30, 20, 40, 70, 60, 80 | Pass |
+| G20 | `historyReplayShowsRecordedState` | a replayed insert shows 8 nodes while the live tree is empty | Pass |
+| G21 | `closingWhilePlayingIsSafe` | deleting the window mid-playback does not crash | Pass |
 
-## J. Manual checks
+## I. Manual checks
 
-The real window was launched and captured at each step of the demonstration script with `tools/capture_screenshots` (see [`screenshots/`](../screenshots)). These captures were inspected visually at 1440×900: layout, highlight colours, comparison badges, ghost slots, the working-copy banner and the traversal output strip. Two layout defects found this way were fixed:
+The real window was launched and captured at each step of the demonstration script with `tools/capture_screenshots` (see [`screenshots/`](../screenshots)). These captures were inspected visually at 1440×900: layout, highlight colours, comparison badges, ghost slots, the BFS queue rings and QUEUE strip, and the traversal output strip. Two layout defects found this way were fixed:
 
 - The right panel overflowed when a long step header appeared.
 - The operation inputs had unused vertical space above them.
 
 Behaviour at other window sizes was not exhaustively tested. The minimum window size is 1120×720.
+
+## J. Web version
+
+The browser version in `web/` has its own suite, ported from the cases above: `node --test web/tests/core.test.js`, with **34 tests, all passing** (Node.js 24). It covers insertion, search, all deletion cases, the depth-first and breadth-first traversals (including the FIFO queue checks of T12), snapshots, the validator, 2000 seeded random operations and input parsing.
+
+The page itself was driven in headless Chrome at 1440×900, 1100×800 and phone width (390×844). The checks covered every module, BFS stepping (the queue matches the desktop app at every step), the absence of horizontal scrolling and an empty browser console.

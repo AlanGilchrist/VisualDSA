@@ -2,7 +2,7 @@
 
 **Interactive Binary Search Tree Operations and Traversal Visualizer**: a Data Structures and Algorithms mini project in C++17 with Qt 6 Widgets, with a matching **web version** that runs in any modern browser.
 
-VisualDSA runs real BST algorithms on a real C++ tree and replays every step they took: comparisons, the path from the root, deletion cases, the inorder successor, transactional updates and traversal order. Every animation is a replay of events recorded while the algorithm ran. Nothing is drawn that the algorithm did not do.
+VisualDSA runs real BST algorithms on a real C++ tree and replays every step they took: comparisons, the path from the root, deletion cases, the inorder successor, depth-first traversal order and the breadth-first queue. Every animation is a replay of events recorded while the algorithm ran. Nothing is drawn that the algorithm did not do.
 
 ![Deleting a node with two children](screenshots/08-delete-successor-found.png)
 
@@ -13,8 +13,8 @@ VisualDSA runs real BST algorithms on a real C++ tree and replays every step the
 | **Insert** | Each comparison, the branch taken, the empty slot where the key lands, then the new node growing in. Duplicates are rejected. |
 | **Delete** | Search, identification of case 1 (leaf), case 2 (one child) or case 3 (two children), the walk to the inorder successor, unlinking and key replacement. |
 | **Search** | Root-to-node path, a live `45 > 30` comparison badge, found (green) or the null pointer where the search ended (red). |
-| **Update** | Old key located, new key checked for conflicts, then delete + insert on a **working copy** that is committed only after the invariant check passes. |
-| **Traversals** | Inorder, preorder and postorder with recursion entry and output steps, order badges on nodes and a progressive output strip. |
+| **Depth-first (DFS)** | Inorder, preorder and postorder with recursion entry and output steps, order badges on nodes and a progressive output strip. |
+| **Breadth-first (BFS)** | Level-order traversal driven by a real queue: each dequeue, output and enqueue is a step, waiting nodes get a dashed ring, and a QUEUE strip shows the queue front to back. |
 
 Also included:
 
@@ -24,7 +24,6 @@ Also included:
 - Playback controls: previous, play/pause, next, restart, 0.5×–4× speed, and a draggable timeline.
 - Zoom, pan and fit-to-view on the canvas, plus click-to-inspect for nodes.
 - An operation history that can be replayed.
-- An Algorithm Reference page.
 
 ## Requirements
 
@@ -87,7 +86,7 @@ The [`web/`](web/) folder holds the same visualizer as a static website. It need
 - **Or serve it locally:** `python -m http.server 8000 --directory web`, then open <http://localhost:8000>.
 - **Host it:** upload the contents of `web/` to any static host (GitHub Pages, Netlify and so on).
 
-The web version is a direct port of the C++ layers. It uses the same algorithms, the same recorded events and explanation text, the same pseudocode and complexity tables, and the same canvas layout and colours. It includes every desktop feature: all five operations, playback with speed and timeline, zoom/pan/fit, click-to-inspect, replayable history, the Algorithm Reference page and the keyboard shortcuts. The layout adapts down to phone width.
+The web version is a direct port of the C++ layers. It uses the same algorithms, the same recorded events and explanation text, the same pseudocode and complexity tables, and the same canvas layout and colours. It includes every desktop feature: all operations and traversals (including BFS), playback with speed and timeline, zoom/pan/fit, click-to-inspect, replayable history and the keyboard shortcuts. The layout adapts down to phone width.
 
 | Web file | Ported from |
 |---|---|
@@ -121,7 +120,7 @@ VisualDSA/
 ├── src/
 │   ├── core/                 Layer A: pure C++17 BST engine, no Qt
 │   │   ├── BSTNode.h             node with unique_ptr children + stable id
-│   │   ├── BinarySearchTree.*    insert / remove / search / update / traverse / rebuild
+│   │   ├── BinarySearchTree.*    insert / remove / search / traverse (DFS + BFS) / rebuild
 │   │   ├── AlgorithmEvent.h      typed event model (EventType, PseudoLine, metrics …)
 │   │   ├── TreeSnapshot.h        pointer-free snapshot of the tree
 │   │   ├── OperationResult.h     result + OperationRecord (events + snapshots)

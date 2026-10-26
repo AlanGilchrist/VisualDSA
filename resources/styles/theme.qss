@@ -143,6 +143,9 @@ QLabel[role="note"] {
 #ExplainOutput {
     color: {{success}};
 }
+#ExplainQueue {
+    color: {{accent}};
+}
 #InputError {
     color: {{error}};
 }

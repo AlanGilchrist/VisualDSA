@@ -16,9 +16,9 @@ The window opens with the sample tree `50, 30, 70, 20, 40, 60, 80` already loade
 │ Insert       │ ROOT · NODES · HEIGHT · NODE      [status]   │ CURRENT STEP explanation │
 │ Delete       │ ┌ canvas ─────────────────── − + □ Fit ┐     │ PSEUDOCODE  synced line  │
 │ Search       │ │                 tree                  │     │ COMPLEXITY  theory +     │
-│ Update       │ │                                        │     │             measured     │
-│ Traversals   │ └────────────────────────────────────────┘     │ HISTORY     replayable   │
-│ Algorithm Ref│                                              │                          │
+│ TRAVERSALS   │ │                                        │     │             measured     │
+│ Depth (DFS)  │ └────────────────────────────────────────┘     │ HISTORY     replayable   │
+│ Breadth (BFS)│                                              │                          │
 ├──────────────┴──────────────────────────────────────────────┴──────────────────────────┤
 │ Playback:  ⏮  ▶  ⏭  ↻   SPEED [1×]   ───────●────────────────   STEP 03 / 09          │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
@@ -36,8 +36,8 @@ The window opens with the sample tree `50, 30, 70, 20, 40, 60, 80` already loade
 | Insert | One key | Duplicates are rejected and the tree stays unchanged. |
 | Delete | One key | Try 20 (leaf), 30 or 50 (two children). For one child: delete 20, then delete 30. |
 | Search | One key | Try 60 (found) and 65 (not found). |
-| Update | Existing key, new key | Example: `40` → `65` moves the key to the right subtree. |
-| Traversals | Inorder, Preorder or Postorder button | |
+| Depth-first (DFS) | Inorder, Preorder or Postorder button | |
+| Breadth-first (BFS) | **Run BFS** button | Level-order traversal with a queue. The QUEUE strip and the right panel show the nodes waiting, front first. |
 
 Press **Enter** in an input field, or click the amber button. Each operation runs at once on the C++ tree, and its recorded steps then start playing automatically.
 
@@ -79,14 +79,15 @@ Pressing Play at the last step plays the operation again from the start. Startin
 | Amber node with a halo | The node being examined |
 | Amber edges | The path from the root to the current node |
 | `45 > 30` badge | The comparison made at this step |
-| Dashed amber ring + label | A second node involved in the step: *next*, *only child*, *successor* or *parent* |
+| Dashed amber ring + label | A second node involved in the step: *next*, *only child*, *successor*, *parent* or *enqueued* |
+| Dashed amber ring, no label (BFS) | A node waiting in the queue |
 | Dashed red ring, labelled *target* | The node being deleted while its successor is searched for |
 | Dashed circle `+45` | The empty slot where the key will be inserted |
 | Dashed circle `null` (red) | The empty pointer where an unsuccessful search ended |
 | Green node | Found, inserted, or already output by a traversal. The small number shows its output position. |
 | Red node fading out | A node being removed |
-| WORKING COPY badge | An update in progress on a copy that has not yet been committed |
 | OUTPUT strip | The traversal sequence produced so far |
+| QUEUE strip (BFS) | The nodes waiting in the queue, front first |
 
 Nodes are placed in inorder order from left to right, so reading the tree horizontally gives the keys sorted.
 
@@ -102,11 +103,7 @@ Nodes are placed in inorder order from left to right, so reading the tree horizo
 
 The **HISTORY** list keeps the 20 most recent operations, each with its status. Click an entry to replay its recorded steps. Each recording is a self-contained snapshot, so this works even after the tree has changed. The status badge shows "Replay ·" during a replay.
 
-## 7. Algorithm Reference
-
-This page shows the BST definition, the complexity table, pseudocode for every operation and a guide to the canvas colours. It is generated from the same metadata the live panels use.
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
